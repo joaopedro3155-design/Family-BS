@@ -53,7 +53,7 @@ export default function Agenda() {
 
   const visible = events.filter((e) => who === 'all' || e.owner_user === who || e.owner_user === null);
   const ofDay = visible.filter((e) => localDay(e.starts_at) === selected);
-  const color = (uid: string | null) => (uid ? members.find((m) => m.user_id === uid)?.color ?? '#0F766E' : '#0F766E');
+  const color = (uid: string | null) => (uid ? members.find((m) => m.user_id === uid)?.color ?? '#E8590C' : '#E8590C');
 
   return (
     <>
@@ -79,7 +79,7 @@ export default function Agenda() {
               <button key={d} className={d === selected ? 'day on' : 'day'} onClick={() => setSelected(d)} aria-pressed={d === selected}>
                 <span className="wd">{WD[new Date(`${d}T12:00:00`).getDay()]}</span>
                 <span className="n">{Number(d.slice(8))}</span>
-                <span className="dots">{owners.map((o) => <span key={o} style={{ background: o === 'both' ? '#0F766E' : color(o) }} />)}</span>
+                <span className="dots">{owners.map((o) => <span key={o} style={{ background: o === 'both' ? '#E8590C' : color(o) }} />)}</span>
               </button>
             );
           })}

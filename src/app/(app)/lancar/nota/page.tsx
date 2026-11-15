@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import { PageHeader, Segmented } from '@/components/ui';
 import { api, useStatus } from '@/lib/api';
-import { compressImage, decodeQr } from '@/lib/image';
+import { compressImage, decodeQr, qrToUrl, scanRegion } from '@/lib/image';
 import { supabase } from '@/lib/supabase';
 import { money, parseMoney, todayISO } from '@/lib/format';
 import { matchStockItem, STOCK_CATEGORIES, type ReadReceiptResponse, type StockItem } from '@/lib/stock';
@@ -24,12 +24,13 @@ export default function Nota() {
   async function fromFile(f: File) {
     setErr(null); setBusy('Procurando o QR code…');
     try {
-      const qr = await decodeQr(f).catch(() => null);
-      if (qr && /^https?:\/\//i.test(qr)) {
+      const raw = await decodeQr(f).catch(() => null);
+      const qr = raw ? qrToUrl(raw) : null;
+      if (qr) {
         setBusy('Buscando a nota na SEFAZ…');
         setData(await api<ReadReceiptResponse>('/api/notas/ler', { qr }));
       } else {
-        if (status && !status.claude) throw new Error('Não achei QR code na foto. Para ler o cupom pela foto, configure o Claude (veja o README).');
+        if (status && !status.claude) throw new Error('Não achei o QR code na foto. Tente pela câmera ao vivo (botão “Ler QR code com a câmera”), com o QR bem iluminado e ocupando o quadrado.');
         setBusy('O Claude está lendo o comprovante…');
         const img = await compressImage(f);
         setData(await api<ReadReceiptResponse>('/api/notas/ler', { image: img.base64, mediaType: img.mediaType }));
@@ -38,11 +39,13 @@ export default function Nota() {
     setBusy(null);
   }
 
-  async function fromLink() {
+  async function fromQr(qr: string) {
     setErr(null); setBusy('Buscando a nota na SEFAZ…');
-    try { setData(await api<ReadReceiptResponse>('/api/notas/ler', { qr: link.trim() })); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    try { setData(await api<ReadReceiptResponse>('/api/notas/ler', { qr })); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     setBusy(null);
   }
+  const fromLink = () => fromQr(qrToUrl(link) ?? link.trim());
+  const [scanning, setScanning] = useState(false);
 
   if (data) return <Confirm data={data} onReset={() => setData(null)} />;
 
@@ -50,9 +53,10 @@ export default function Nota() {
     <>
       <PageHeader title="Nota fiscal ou comprovante" back="/lancar" />
       <div className="card stack">
-        <p>Tire uma foto do <strong>QR code do cupom fiscal</strong> (traz todos os itens e preços) ou de qualquer <strong>comprovante</strong> (cartão, Pix, recibo).</p>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); e.target.value = ''; }} />
-        <button className="btn primary" disabled={!!busy} onClick={() => fileRef.current?.click()}>{busy ?? 'Tirar foto / escolher imagem'}</button>
+        <p>Aponte a câmera para o <strong>QR code do cupom fiscal</strong>: ele traz todos os itens e preços.</p>
+        <button className="btn primary" disabled={!!busy} onClick={() => setScanning(true)}>{busy ?? 'Ler QR code com a câmera'}</button>
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); e.target.value = ''; }} />
+        <button className="btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>Usar foto da galeria</button>
         {status && !status.claude && <p className="small muted">Sem o Claude configurado, só o QR code da NFC-e funciona.</p>}
       </div>
       <div className="card stack">
@@ -60,7 +64,71 @@ export default function Nota() {
         <button className="btn" disabled={!!busy || !link.trim()} onClick={fromLink}>Buscar nota</button>
       </div>
       {err && <div className="card warn small">{err}</div>}
+      {scanning && <QrScanner onClose={() => setScanning(false)} onResult={(qr) => { setScanning(false); fromQr(qr); }} />}
     </>
+  );
+}
+
+function QrScanner({ onClose, onResult }: { onClose: () => void; onResult: (url: string) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [msg, setMsg] = useState('Abrindo a câmera…');
+  const [found, setFound] = useState<string | null>(null);
+  const done = useRef(onResult);
+  useEffect(() => { done.current = onResult; }, [onResult]);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let raf = 0, stopped = false, n = 0, last = 0;
+    const canvas = document.createElement('canvas');
+    async function start() {
+      if (!navigator.mediaDevices?.getUserMedia) { setMsg('Este navegador não libera a câmera. Use “Usar foto da galeria”.'); return; }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      } catch (e) {
+        const name = e instanceof DOMException ? e.name : '';
+        setMsg(name === 'NotAllowedError' ? 'A câmera foi bloqueada. No iPhone: Ajustes › Apps › Safari › Câmera › Permitir, e abra o app de novo.' : 'Não consegui abrir a câmera.');
+        return;
+      }
+      if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
+      const v = videoRef.current!;
+      v.srcObject = stream;
+      v.setAttribute('playsinline', 'true');
+      await v.play().catch(() => {});
+      setMsg('Centralize o QR code no quadrado');
+      const tick = (t: number) => {
+        if (stopped) return;
+        raf = requestAnimationFrame(tick);
+        if (t - last < 120 || v.readyState < 2 || !v.videoWidth) return;
+        last = t; n++;
+        // alterna recortes: centro (rápido) e quadro inteiro (QR maior ou fora do centro)
+        const plan: [number, number, boolean][] = [[0.7, 720, false], [0.5, 640, false], [1, 1000, n % 6 === 0]];
+        const [crop, size, inv] = plan[n % plan.length];
+        const raw = scanRegion(v, v.videoWidth, v.videoHeight, crop, size, canvas, inv);
+        const url = raw ? qrToUrl(raw) : null;
+        if (raw && !url) setMsg('Esse QR não é de nota fiscal (NFC-e).');
+        if (url) {
+          stopped = true;
+          navigator.vibrate?.(80);
+          setFound(url);
+          stream?.getTracks().forEach((tr) => tr.stop());
+          setTimeout(() => done.current(url), 250);
+        }
+      };
+      raf = requestAnimationFrame(tick);
+    }
+    start();
+    return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); };
+  }, []);
+
+  return (
+    <div className="scanner" role="dialog" aria-modal="true" aria-label="Ler QR code">
+      <video ref={videoRef} muted playsInline autoPlay />
+      <div className={found ? 'scan-frame ok' : 'scan-frame'} />
+      <div className="scan-bar">
+        <span>{found ? 'QR lido! Buscando a nota…' : msg}</span>
+        <button className="btn" onClick={onClose}>Cancelar</button>
+      </div>
+    </div>
   );
 }
 

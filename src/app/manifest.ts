@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'Agenda, finanças e casa da família',
     start_url: '/',
     display: 'standalone',
-    background_color: '#F6F7F9',
-    theme_color: '#14213D',
+    background_color: '#F6F3EF',
+    theme_color: '#23201C',
     lang: 'pt-BR',
     icons: [
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },

@@ -92,7 +92,7 @@ export default function Investir() {
             <span className="small strong muted">{owner === 'Todos' ? 'Total de todos os titulares' : `Investimentos de ${owner}`}</span>
             <span className="big"><Money v={total} /></span>
             {invested > 0 && Math.abs(gain) >= 0.01 && (
-              <span className="small" style={{ color: gain >= 0 ? '#5eead4' : '#fca5a5' }}>{gain >= 0 ? 'Rendeu ' : 'Perdeu '}<Money v={Math.abs(gain)} /> sobre <Money v={invested} /> aplicados</span>
+              <span className="small" style={{ color: gain >= 0 ? '#FDBA8C' : '#FCA5A5' }}>{gain >= 0 ? 'Rendeu ' : 'Perdeu '}<Money v={Math.abs(gain)} /> sobre <Money v={invested} /> aplicados</span>
             )}
             {owner === 'Todos' && usedOwners.length > 1 && (
               <div className="grid2 small">{usedOwners.map((o) => <span key={o}>{o}: <Money v={ownerTotal(o)} /></span>)}</div>

@@ -63,7 +63,7 @@ export default function Hoje() {
       <div className="card dark stack">
         <div className="row between">
           <span className="small strong muted">Resumo do dia da família</span>
-          <div className="row">{members.map((m, i) => <span key={m.user_id} className="avatar" style={{ background: m.color, marginLeft: i ? -8 : 0, border: '2px solid #14213D' }}>{m.display_name[0]}</span>)}</div>
+          <div className="row">{members.map((m, i) => <span key={m.user_id} className="avatar" style={{ background: m.color, marginLeft: i ? -8 : 0, border: '2px solid #23201C' }}>{m.display_name[0]}</span>)}</div>
         </div>
         <div className="grid3">
           <div className="stack" style={{ gap: 2 }}><span className="mid">{events.length}</span><span className="small muted">compromissos</span></div>

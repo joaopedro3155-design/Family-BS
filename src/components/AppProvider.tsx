@@ -68,7 +68,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sb.from('accounts').select('*').eq('household_id', h).order('kind'),
       ]);
       setHouseholdName((hh.data?.name as string) ?? 'Família');
-      setMembers((mem.data as Member[]) ?? []);
+      // cores antigas (azul/laranja-escuro) → nova paleta
+      const remap: Record<string, string> = { '#1D4ED8': '#57524C', '#C2410C': '#E8590C', '#0F766E': '#E8590C' };
+      setMembers(((mem.data as Member[]) ?? []).map((m) => ({ ...m, color: remap[m.color?.toUpperCase()] ?? m.color })));
       setAccounts((acc.data as Account[]) ?? []);
       await loadCategories(h);
       setStatus('ready');

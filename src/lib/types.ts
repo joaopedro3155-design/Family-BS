@@ -103,11 +103,11 @@ export const NEWS_LABELS: { id: string; label: string }[] = [
 ];
 
 export const ASSET_CLASSES: { id: string; label: string; color: string }[] = [
-  { id: 'reserva', label: 'Reserva', color: '#94A3B8' },
-  { id: 'renda_fixa', label: 'Renda fixa', color: '#0F766E' },
-  { id: 'fii', label: 'Fundos imobiliários', color: '#1D4ED8' },
-  { id: 'acoes', label: 'Ações', color: '#C2410C' },
-  { id: 'previdencia', label: 'Previdência', color: '#7C3AED' },
-  { id: 'cripto', label: 'Cripto', color: '#A16207' },
-  { id: 'outros', label: 'Outros', color: '#475569' },
+  { id: 'reserva', label: 'Reserva', color: '#A8A29E' },
+  { id: 'renda_fixa', label: 'Renda fixa', color: '#E8590C' },
+  { id: 'fii', label: 'Fundos imobiliários', color: '#57524C' },
+  { id: 'acoes', label: 'Ações', color: '#F59F00' },
+  { id: 'previdencia', label: 'Previdência', color: '#9C6644' },
+  { id: 'cripto', label: 'Cripto', color: '#D6336C' },
+  { id: 'outros', label: 'Outros', color: '#78716C' },
 ];

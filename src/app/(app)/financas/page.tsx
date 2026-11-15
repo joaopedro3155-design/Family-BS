@@ -11,7 +11,7 @@ import type { Category, Kind, Transaction } from '@/lib/types';
 // Mesma ordem da planilha
 const GROUP_ORDER = ['Receitas', 'Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Educação', 'Filha', 'Lazer', 'Cuidados Pessoais', 'Vestuário', 'Animal Estimação', 'Despesas Bancárias', 'Gratidão', 'Investimento', 'Despesas gerais', 'Outros'];
 const groupRank = (g: string) => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? 90 : i; };
-const PALETTE = ['#0F766E', '#1D4ED8', '#C2410C', '#7C3AED', '#DB2777', '#CA8A04', '#0891B2', '#65A30D', '#DC2626', '#4F46E5', '#EA580C', '#059669', '#9333EA', '#475569', '#B45309', '#0E7490'];
+const PALETTE = ['#E8590C', '#57524C', '#F59F00', '#9C6644', '#FD7E14', '#A8A29E', '#C2470A', '#D6B48C', '#7A2E05', '#FFA94D', '#3F3A35', '#E8B07A', '#B05A2E', '#8F857B', '#FFC078', '#5C4033'];
 type View = 'resumo' | 'planilha' | 'lancamentos';
 
 const inMonth = (t: Transaction, key: string) => t.occurred_on.startsWith(key);

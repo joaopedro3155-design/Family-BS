@@ -22,15 +22,39 @@ function draw(img: HTMLImageElement, maxSide: number): HTMLCanvasElement {
   return c;
 }
 
-/** Procura um QR code na foto (tenta em dois tamanhos). */
+/** Lê um QR de um recorte (x, y, w, h) de qualquer fonte desenhável, reduzido a `size` px. */
+export function scanRegion(src: CanvasImageSource, sw: number, sh: number, crop: number, size: number, canvas?: HTMLCanvasElement, invert = false): string | null {
+  const side = Math.min(sw, sh) * crop;
+  const w = crop >= 1 ? sw : side, h = crop >= 1 ? sh : side;
+  const x = (sw - w) / 2, y = (sh - h) / 2;
+  const scale = Math.min(1, size / Math.max(w, h));
+  const c = canvas ?? document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * scale));
+  c.height = Math.max(1, Math.round(h * scale));
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(src, x, y, w, h, 0, 0, c.width, c.height);
+  const data = ctx.getImageData(0, 0, c.width, c.height);
+  const code = jsQR(data.data, data.width, data.height, { inversionAttempts: invert ? 'attemptBoth' : 'dontInvert' });
+  return code?.data || null;
+}
+
+/** Procura um QR code na foto: tenta vários recortes e tamanhos (o QR da NFC-e é denso). */
 export async function decodeQr(file: File): Promise<string | null> {
   const img = await loadImage(file);
-  for (const size of [1400, 900, 2200]) {
-    const c = draw(img, size);
-    const data = c.getContext('2d')!.getImageData(0, 0, c.width, c.height);
-    const code = jsQR(data.data, data.width, data.height, { inversionAttempts: 'attemptBoth' });
-    if (code?.data) return code.data;
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const tries: [number, number][] = [[1, 1400], [0.6, 1000], [0.8, 1200], [0.45, 800], [1, 2400], [0.35, 700], [1, 900]];
+  for (const [crop, size] of tries) {
+    const r = scanRegion(img, w, h, crop, size, undefined, true);
+    if (r) return r;
   }
+  return null;
+}
+
+/** Normaliza o conteúdo do QR da NFC-e para um link. */
+export function qrToUrl(raw: string): string | null {
+  const t = raw.trim();
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^www\./i.test(t) || /fazenda|sefaz|nfce/i.test(t)) return `https://${t.replace(/^\/+/, '')}`;
   return null;
 }
 
