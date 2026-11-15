@@ -5,6 +5,18 @@ import { nextDue, daysBetween } from '@/lib/recurring';
 import { monthKey, monthRange, timeLabel, todayISO } from '@/lib/format';
 import type { EventItem, RecurringBill } from '@/lib/types';
 import { needsBuying, type StockItem } from '@/lib/stock';
+import { expandEvents } from '@/lib/recurrence';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+const EV_COLS = 'id,household_id,title,starts_at,ends_at,reminders,owner_user,location,recurrence,recurrence_interval,recurrence_until';
+/** Compromissos (inclusive os que se repetem) entre from e to, já expandidos por ocorrência. */
+async function eventsBetween(sb: SupabaseClient, from: string, to: string, householdId?: string) {
+  let a = sb.from('events').select(EV_COLS).eq('recurrence', 'none').gte('starts_at', from).lte('starts_at', to);
+  let b = sb.from('events').select(EV_COLS).neq('recurrence', 'none').lte('starts_at', to).or(`recurrence_until.is.null,recurrence_until.gte.${from.slice(0, 10)}`);
+  if (householdId) { a = a.eq('household_id', householdId); b = b.eq('household_id', householdId); }
+  const [{ data: one }, { data: rec }] = await Promise.all([a, b]);
+  return expandEvents([...((one ?? []) as EventItem[]), ...((rec ?? []) as EventItem[])], from, to);
+}
 
 // Chamado a cada 5 minutos pelo agendador do Supabase (supabase/cron.sql)
 export async function POST(req: Request) {
@@ -20,18 +32,20 @@ export async function POST(req: Request) {
 
   // 1) Compromissos das próximas 48 h
   const horizon = new Date(now.getTime() + 48 * 3600 * 1000).toISOString();
-  const { data: events } = await sb.from('events').select('id,household_id,title,starts_at,reminders,owner_user,location').gte('starts_at', now.toISOString()).lte('starts_at', horizon);
-  const ids = (events ?? []).map((e) => e.id);
-  const { data: sentRows } = ids.length ? await sb.from('event_notifications').select('event_id,minutes_before').in('event_id', ids) : { data: [] };
-  const sent = new Set((sentRows ?? []).map((r) => `${r.event_id}:${r.minutes_before}`));
-  for (const r of dueEventReminders((events ?? []) as EventItem[], sent, now)) {
-    const e = (events ?? []).find((x) => x.id === r.eventId)!;
-    const { error } = await sb.from('event_notifications').insert({ event_id: e.id, minutes_before: r.minutes });
+  const occ = await eventsBetween(sb, now.toISOString(), horizon);
+  const ids = [...new Set(occ.map((e) => e.id))];
+  const { data: sentRows } = ids.length ? await sb.from('event_notifications').select('event_id,minutes_before,occurs_at').in('event_id', ids) : { data: [] };
+  const sent = new Set((sentRows ?? []).map((r) => `${r.event_id}|${new Date(r.occurs_at).toISOString()}:${r.minutes_before}`));
+  const virtual = occ.map((e) => ({ ...e, id: `${e.id}|${new Date(e.starts_at).toISOString()}` }));
+  for (const r of dueEventReminders(virtual, sent, now)) {
+    const e = virtual.find((x) => x.id === r.eventId)!;
+    const [eventId, occursAt] = r.eventId.split('|');
+    const { error } = await sb.from('event_notifications').insert({ event_id: eventId, minutes_before: r.minutes, occurs_at: occursAt });
     if (error) continue; // outro disparo já enviou
     await pushToHousehold(sb, e.household_id, {
       title: e.title,
       body: `${reminderText(r.minutes)} · ${timeLabel(e.starts_at)}${e.location ? ` · ${e.location}` : ''}`,
-      url: '/agenda', tag: `ev-${e.id}`,
+      url: '/agenda', tag: `ev-${eventId}-${occursAt}`,
     }, e.owner_user ? [e.owner_user] : undefined);
     report.eventos++;
   }
@@ -82,7 +96,7 @@ export async function POST(req: Request) {
       const dayStart = new Date(`${today}T00:00:00-03:00`).toISOString();
       const dayEnd = new Date(`${today}T23:59:59-03:00`).toISOString();
       const [{ data: ev }, { data: bl }, { data: st }] = await Promise.all([
-        sb.from('events').select('title,starts_at').eq('household_id', h.id).gte('starts_at', dayStart).lte('starts_at', dayEnd).order('starts_at'),
+        eventsBetween(sb, dayStart, dayEnd, h.id).then((data) => ({ data })),
         sb.from('recurring_bills').select('name,due_day,due_month,frequency').eq('household_id', h.id).eq('active', true).eq('tipo', 'despesa'),
         sb.from('stock_items').select('*').eq('household_id', h.id).eq('active', true),
       ]);

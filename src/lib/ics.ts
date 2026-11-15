@@ -1,5 +1,5 @@
 // Gera o calendário (iCal) para assinar no app Calendário do iPhone.
-export interface IcsEvent { id: string; title: string; starts_at: string; ends_at: string | null; location: string | null; notes: string | null; reminders: number[]; who: string }
+export interface IcsEvent { id: string; title: string; starts_at: string; ends_at: string | null; location: string | null; notes: string | null; reminders: number[]; who: string; rrule?: string | null }
 
 const stamp = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const escText = (s: string) => s.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
@@ -19,6 +19,7 @@ export function buildIcs(calName: string, events: IcsEvent[], now = new Date()):
     const end = e.ends_at ?? new Date(Date.parse(e.starts_at) + 3600000).toISOString();
     lines.push('BEGIN:VEVENT', `UID:${e.id}@familybs`, `DTSTAMP:${stamp(now.toISOString())}`, `DTSTART:${stamp(e.starts_at)}`, `DTEND:${stamp(end)}`,
       `SUMMARY:${escText(e.who ? `${e.title} (${e.who})` : e.title)}`);
+    if (e.rrule) lines.push(e.rrule);
     if (e.location) lines.push(`LOCATION:${escText(e.location)}`);
     if (e.notes) lines.push(`DESCRIPTION:${escText(e.notes)}`);
     for (const m of e.reminders ?? []) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escText(e.title)}`, `TRIGGER:-PT${m}M`, 'END:VALARM');

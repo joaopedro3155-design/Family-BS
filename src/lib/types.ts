@@ -72,6 +72,10 @@ export interface EventItem {
   ends_at: string | null;
   owner_user: string | null;
   company: boolean;
+  recurrence: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+  recurrence_interval: number;
+  recurrence_until: string | null;
+  is_task: boolean;
   category: 'cliente' | 'escritorio' | 'casa' | 'pessoal' | 'familia' | 'entrega';
   reminders: number[];
 }

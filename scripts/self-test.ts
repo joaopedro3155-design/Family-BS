@@ -14,6 +14,7 @@ import { buildIcs } from '../src/lib/ics';
 import { parseRss, mergeHeadlines } from '../src/lib/rss';
 import { parseSgs, realRate } from '../src/lib/bcb';
 import { parseReceiptText, splitByBucket, classifyItem } from '../src/lib/receipt-text';
+import { occurrences, recurrenceLabel, nextOccurrence, rrule } from '../src/lib/recurrence';
 
 let n = 0;
 const t = (name: string, fn: () => void) => { fn(); n++; console.log('ok -', name); };
@@ -187,6 +188,22 @@ t('cupom pela foto: tipo de loja e divisão por categoria', () => {
   assert.deepEqual(splitByBucket(p.items, p.total, p.storeKind), [{ bucket: 'combustivel', amount: 134.71, items: [] }]);
   assert.equal(classifyItem('FRALDA PAMPERS G'), 'bebe');
   assert.equal(classifyItem('QUEIJO MUSSARELA', 'padaria'), 'padaria');
+});
+
+t('agenda: repetição diária, semanal, mensal e anual', () => {
+  const base = { starts_at: '2026-01-31T12:00:00.000Z' }; // 31/01 09:00 em Brasília
+  const days = (r: string[]) => r.map((x) => new Date(Date.parse(x) - 3 * 3600000).toISOString().slice(0, 16));
+  assert.deepEqual(days(occurrences({ ...base, recurrence: 'monthly' }, '2026-01-01T00:00:00Z', '2026-05-01T00:00:00Z')),
+    ['2026-01-31T09:00', '2026-02-28T09:00', '2026-03-31T09:00', '2026-04-30T09:00']);
+  assert.equal(occurrences({ ...base, recurrence: 'daily', recurrence_interval: 2 }, '2026-02-01T00:00:00Z', '2026-02-10T23:00:00Z').length, 5);
+  const wk = occurrences({ ...base, recurrence: 'weekly', recurrence_until: '2026-02-21' }, '2026-01-01T00:00:00Z', '2026-12-31T00:00:00Z');
+  assert.deepEqual(days(wk).map((d) => d.slice(0, 10)), ['2026-01-31', '2026-02-07', '2026-02-14', '2026-02-21']);
+  assert.deepEqual(days(occurrences({ starts_at: '2024-02-29T12:00:00Z', recurrence: 'yearly' }, '2025-01-01T00:00:00Z', '2028-12-31T00:00:00Z')).map((d) => d.slice(0, 10)), ['2025-02-28', '2026-02-28', '2027-02-28', '2028-02-29']);
+  assert.equal(recurrenceLabel({ starts_at: '2026-11-18T12:00:00Z', recurrence: 'weekly' }), 'Toda semana · quarta');
+  assert.equal(recurrenceLabel({ starts_at: '2026-11-10T12:00:00Z', recurrence: 'monthly', recurrence_interval: 3 }), 'A cada 3 meses · dia 10');
+  assert.equal(nextOccurrence({ starts_at: '2020-01-01T12:00:00Z', recurrence: 'yearly' }, new Date('2026-11-15T12:00:00Z')), '2027-01-01T12:00:00.000Z');
+  assert.equal(rrule({ starts_at: base.starts_at, recurrence: 'weekly', recurrence_interval: 2, recurrence_until: '2026-12-31' }), 'RRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20261231T235959Z');
+  assert.deepEqual(occurrences({ starts_at: '2026-11-20T12:00:00Z' }, '2026-11-01T00:00:00Z', '2026-11-30T00:00:00Z'), ['2026-11-20T12:00:00Z']);
 });
 
 console.log(`\n${n} grupos de teste passaram.`);

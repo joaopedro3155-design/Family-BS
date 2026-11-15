@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import { EyeButton, Money, PageHeader, Bar, Empty, LocationLink } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
+import { fetchOccurrences, setDone, type Occurrence } from '@/lib/events-db';
 import { dayLabel, monthKey, monthRange, timeLabel, todayISO } from '@/lib/format';
 import { daysBetween, nextDue } from '@/lib/recurring';
-import type { EventItem, RecurringBill, Transaction } from '@/lib/types';
+import type { RecurringBill, Transaction } from '@/lib/types';
 
 export default function Hoje() {
   const { householdId, me, members, memberName, accounts, categories } = useApp();
-  const [events, setEvents] = useState<EventItem[]>([]);
+  const [events, setEvents] = useState<Occurrence[]>([]);
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [txs, setTxs] = useState<Transaction[]>([]);
   const today = todayISO();
@@ -23,11 +24,11 @@ export default function Hoje() {
     const end = new Date(`${today}T23:59:59`).toISOString();
     const { start: ms, end: me2 } = monthRange(monthKey());
     Promise.all([
-      sb.from('events').select('*').eq('household_id', householdId).gte('starts_at', start).lte('starts_at', end).order('starts_at'),
+      fetchOccurrences(sb, householdId, start, end).then((data) => ({ data })),
       sb.from('recurring_bills').select('*').eq('household_id', householdId).eq('active', true),
       sb.from('transactions').select('*').eq('household_id', householdId).gte('occurred_on', ms).lt('occurred_on', me2),
     ]).then(([e, b, t]) => {
-      setEvents((e.data as EventItem[]) ?? []);
+      setEvents(e.data ?? []);
       setBills((b.data as RecurringBill[]) ?? []);
       setTxs((t.data as Transaction[]) ?? []);
     });
@@ -78,9 +79,11 @@ export default function Hoje() {
           <div className="list">
             {events.length === 0 && <Empty>Nada marcado para hoje.</Empty>}
             {events.map((e) => (
-              <div key={e.id} className="list-item">
-                <span className="strong small" style={{ width: 44 }}>{timeLabel(e.starts_at)}</span>
-                <div className="grow"><span className="strong">{e.title}</span>{e.location && <LocationLink location={e.location} />}</div>
+              <div key={`${e.id}-${e.occ}`} className="list-item">
+                {e.is_task ? (
+                  <button className={e.done ? 'task-check on' : 'task-check'} aria-label={e.done ? 'Desmarcar tarefa' : 'Marcar como feita'} onClick={async () => { await setDone(supabase(), e.id, e.occ, !e.done); setEvents((l) => l.map((x) => (x.id === e.id && x.occ === e.occ ? { ...x, done: !e.done } : x))); }}>{e.done ? '✓' : ''}</button>
+                ) : <span className="strong small" style={{ width: 44 }}>{timeLabel(e.starts_at)}</span>}
+                <div className="grow"><span className="strong" style={e.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{e.title}</span>{e.location && <LocationLink location={e.location} />}</div>
                 <span className={e.company ? 'pill gray' : e.owner_user ? (members[0]?.user_id === e.owner_user ? 'pill blue' : 'pill orange') : 'pill'}>{e.company ? accounts.find((a) => a.kind === 'PJ')?.name ?? 'Empresa' : memberName(e.owner_user)}</span>
               </div>
             ))}

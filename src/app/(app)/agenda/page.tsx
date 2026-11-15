@@ -6,6 +6,8 @@ import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { dayLabel, timeLabel, todayISO } from '@/lib/format';
 import { EVENT_CATEGORIES, type EventItem } from '@/lib/types';
+import { fetchOccurrences, setDone, type Occurrence } from '@/lib/events-db';
+import { RECURRENCES, nextOccurrence, recurrenceLabel, type Recurrence } from '@/lib/recurrence';
 
 const WD = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 const REMINDERS = [
@@ -34,7 +36,9 @@ export default function Agenda() {
   const { householdId, members, memberName, accounts, me } = useApp();
   const cbsName = accounts.find((a) => a.kind === 'PJ')?.name ?? 'Empresa';
   const [mode, setMode] = useState<'semana' | 'lista'>('semana');
-  const [upcoming, setUpcoming] = useState<EventItem[]>([]);
+  const [view, setView] = useState<'agenda' | 'recorrentes'>('agenda');
+  const [upcoming, setUpcoming] = useState<Occurrence[]>([]);
+  const [series, setSeries] = useState<EventItem[]>([]);
   const [selected, setSelected] = useState(todayISO());
   const [weekStart, setWeekStart] = useState(() => {
     const t = todayISO();
@@ -42,7 +46,7 @@ export default function Agenda() {
     return addDays(t, -((wd + 6) % 7)); // segunda
   });
   const [who, setWho] = useState<string>('all');
-  const [events, setEvents] = useState<EventItem[]>([]);
+  const [events, setEvents] = useState<Occurrence[]>([]);
   const [editing, setEditing] = useState<Partial<EventItem> | null>(null);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
@@ -55,8 +59,7 @@ export default function Agenda() {
     let alive = true;
     const start = new Date(`${days[0]}T00:00:00`).toISOString();
     const end = new Date(`${days[6]}T23:59:59`).toISOString();
-    supabase().from('events').select('*').eq('household_id', householdId).gte('starts_at', start).lte('starts_at', end).order('starts_at')
-      .then(({ data }) => { if (alive) setEvents((data as EventItem[]) ?? []); });
+    fetchOccurrences(supabase(), householdId, start, end).then((data) => { if (alive) setEvents(data); });
     return () => { alive = false; };
   }, [householdId, days, rev]);
 
@@ -65,29 +68,61 @@ export default function Agenda() {
     if (!householdId || who !== CBS || mode !== 'lista') return;
     let alive = true;
     const start = new Date(`${todayISO()}T00:00:00`).toISOString();
-    supabase().from('events').select('*').eq('household_id', householdId).eq('company', true).gte('starts_at', start).order('starts_at').limit(200)
-      .then(({ data }) => { if (alive) setUpcoming((data as EventItem[]) ?? []); });
+    const end = new Date(Date.now() + 365 * 86400000).toISOString();
+    fetchOccurrences(supabase(), householdId, start, end, { company: true, limit: 200 }).then((data) => { if (alive) setUpcoming(data); });
     return () => { alive = false; };
   }, [householdId, who, mode, rev]);
 
-  const visible = events.filter((e) => who === 'all' || (who === CBS ? e.company : !e.company && (e.owner_user === who || e.owner_user === null)));
+  // todas as séries que se repetem
+  useEffect(() => {
+    if (!householdId || view !== 'recorrentes') return;
+    let alive = true;
+    supabase().from('events').select('*').eq('household_id', householdId).neq('recurrence', 'none').order('title')
+      .then(({ data }) => { if (alive) setSeries((data as EventItem[]) ?? []); });
+    return () => { alive = false; };
+  }, [householdId, view, rev]);
+
+  async function toggleDone(e: Occurrence) {
+    await setDone(supabase(), e.id, e.occ, !e.done);
+    const flip = (l: Occurrence[]) => l.map((x) => (x.id === e.id && x.occ === e.occ ? { ...x, done: !e.done } : x));
+    setEvents(flip); setUpcoming(flip);
+  }
+
+  const matchWho = (e: EventItem) => who === 'all' || (who === CBS ? e.company : !e.company && (e.owner_user === who || e.owner_user === null));
+  const visible = events.filter(matchWho);
   const ofDay = visible.filter((e) => localDay(e.starts_at) === selected);
   const color = (e: Pick<EventItem, 'owner_user' | 'company'>) => (e.company ? CBS_COLOR : e.owner_user ? members.find((m) => m.user_id === e.owner_user)?.color ?? '#E8590C' : '#E8590C');
   const ownerLabel = (e: EventItem) => (e.company ? cbsName : memberName(e.owner_user));
   const showList = who === CBS && mode === 'lista';
-  const openEvent = (e: EventItem) => setEditing({ ...e, starts_at: toLocalInput(e.starts_at), ends_at: e.ends_at ? toLocalInput(e.ends_at) : null });
-  const card = (e: EventItem, timeText: string) => (
-    <div key={e.id} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => openEvent(e)}>
-      <span className="time">{timeText}</span>
+  // repetição: abre a série original (a data de início é a primeira ocorrência)
+  const openEvent = async (e: EventItem) => {
+    let src = e;
+    if (e.recurrence && e.recurrence !== 'none') {
+      const { data } = await supabase().from('events').select('*').eq('id', e.id).single();
+      if (data) src = data as EventItem;
+    }
+    setEditing({ ...src, starts_at: toLocalInput(src.starts_at), ends_at: src.ends_at ? toLocalInput(src.ends_at) : null });
+  };
+  const newItem = (extra: Partial<EventItem> = {}) => setEditing({
+    ...(who === CBS
+      ? { starts_at: `${showList ? todayISO() : selected}T09:00`, reminders: [1440, 60], category: 'entrega', owner_user: me?.user_id ?? null, company: true }
+      : { starts_at: `${selected}T09:00`, reminders: [1440, 60], category: 'pessoal', owner_user: who !== 'all' ? who : null, company: false }),
+    recurrence: 'none', recurrence_interval: 1, recurrence_until: null, is_task: false, ...extra,
+  });
+  const card = (e: Occurrence, timeText: string) => (
+    <div key={`${e.id}-${e.occ}`} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => openEvent(e)}>
+      {e.is_task ? (
+        <span className="time"><button className={e.done ? 'task-check on' : 'task-check'} aria-label={e.done ? 'Desmarcar tarefa' : 'Marcar como feita'} onClick={(ev) => { ev.stopPropagation(); toggleDone(e); }}>{e.done ? '✓' : ''}</button></span>
+      ) : <span className="time">{timeText}</span>}
       <span className="body" style={{ background: `${color(e)}1A` }}>
-        <span className="strong" style={{ color: color(e) }}>{e.title}</span>
-        <span className="small">{ownerLabel(e)} · {EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}</span>
+        <span className="strong" style={{ color: color(e), ...(e.done ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>{e.title}</span>
+        <span className="small">{ownerLabel(e)} · {e.is_task ? `Tarefa${timeText ? ` · ${timeText}` : ''}` : EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}{e.recurrence !== 'none' ? ' · ↻' : ''}</span>
         {e.location && <LocationLink location={e.location} />}
       </span>
     </div>
   );
   const byDate = useMemo(() => {
-    const m = new Map<string, EventItem[]>();
+    const m = new Map<string, Occurrence[]>();
     for (const e of upcoming) { const d = localDay(e.starts_at); m.set(d, [...(m.get(d) ?? []), e]); }
     return Array.from(m.entries());
   }, [upcoming]);
@@ -95,13 +130,34 @@ export default function Agenda() {
   return (
     <>
       <PageHeader title="Agenda">
-        <button className="btn primary small" onClick={() => setEditing(who === CBS ? { starts_at: `${showList ? todayISO() : selected}T09:00`, reminders: [1440, 60], category: 'entrega', owner_user: me?.user_id ?? null, company: true } : { starts_at: `${selected}T09:00`, reminders: [1440, 60], category: 'pessoal', owner_user: null, company: false })}>
-          <Icon name="plus" size={16} /> Compromisso
+        <button className="btn primary small" onClick={() => (view === 'recorrentes' ? newItem({ recurrence: 'weekly', is_task: true, starts_at: `${todayISO()}T09:00` }) : newItem())}>
+          <Icon name="plus" size={16} /> {view === 'recorrentes' ? 'Recorrente' : 'Compromisso'}
         </button>
       </PageHeader>
 
+      <Segmented value={view} onChange={setView} options={[{ id: 'agenda', label: 'Agenda' }, { id: 'recorrentes', label: 'Tarefas recorrentes' }]} />
+
       <Chips value={who} onChange={setWho} options={[{ id: 'all', label: 'Todos' }, ...members.map((m) => ({ id: m.user_id, label: m.display_name.split(' ')[0] })), { id: CBS, label: cbsName }]} />
 
+      {view === 'recorrentes' ? (
+        <div className="stack" style={{ gap: 8 }}>
+          {series.filter(matchWho).length === 0 && <Empty>Nada se repetindo ainda. Toque em “+ Recorrente” para criar, por exemplo, “Trocar filtro da água · todo mês” ou “Pagar diarista · toda sexta”.</Empty>}
+          {series.filter(matchWho).map((e) => {
+            const next = nextOccurrence(e);
+            const nd = next ? localDay(next) : null;
+            return (
+              <div key={e.id} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => openEvent(e)}>
+                <span className="time" style={{ fontSize: 20 }}>↻</span>
+                <span className="body" style={{ background: `${color(e)}1A` }}>
+                  <span className="strong" style={{ color: color(e) }}>{e.title}</span>
+                  <span className="small">{recurrenceLabel(e)} · {timeLabel(e.starts_at)}</span>
+                  <span className="small muted">{ownerLabel(e)} · {e.is_task ? 'Tarefa' : EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}{nd ? ` · próxima ${dayLabel(nd).toLowerCase()} (${daysUntil(nd)})` : ' · encerrada'}</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (<>
       {who === CBS && <Segmented value={mode} onChange={setMode} options={[{ id: 'semana', label: 'Semana' }, { id: 'lista', label: 'Próximas datas' }]} />}
 
       {showList ? (
@@ -142,6 +198,7 @@ export default function Agenda() {
         {ofDay.map((e) => card(e, timeLabel(e.starts_at)))}
       </div>
       </>)}
+      </>)}
 
       {editing && <EventSheet value={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
     </>
@@ -176,6 +233,10 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
       company: v.company ?? false,
       category: v.category ?? 'pessoal',
       reminders: v.reminders ?? [],
+      recurrence: v.recurrence ?? 'none',
+      recurrence_interval: Math.max(1, Number(v.recurrence_interval) || 1),
+      recurrence_until: v.recurrence && v.recurrence !== 'none' ? v.recurrence_until || null : null,
+      is_task: v.is_task ?? false,
     };
     const sb = supabase();
     const { error } = v.id ? await sb.from('events').update(row).eq('id', v.id) : await sb.from('events').insert(row);
@@ -186,7 +247,7 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
   }
 
   async function remove() {
-    if (!v.id || !confirm('Apagar este compromisso?')) return;
+    if (!v.id || !confirm(v.recurrence && v.recurrence !== 'none' ? 'Apagar todas as repetições?' : 'Apagar este compromisso?')) return;
     await supabase().from('events').delete().eq('id', v.id);
     onSaved();
   }
@@ -224,6 +285,25 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
             </select>
           </label>
         </div>
+        <label className="check"><input type="checkbox" checked={v.is_task ?? false} onChange={(e) => set({ is_task: e.target.checked })} />É uma tarefa (marcar como feita)</label>
+        <div className="grid2">
+          <label className="field"><span>Repetir</span>
+            <select value={v.recurrence ?? 'none'} onChange={(e) => set({ recurrence: e.target.value as Recurrence })}>
+              {RECURRENCES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </label>
+          {v.recurrence && v.recurrence !== 'none' ? (
+            <label className="field"><span>A cada</span>
+              <div className="row gap8"><input type="number" min={1} max={99} inputMode="numeric" style={{ width: 70 }} value={v.recurrence_interval ?? 1} onChange={(e) => set({ recurrence_interval: Number(e.target.value) || 1 })} /><span className="small">{(v.recurrence_interval ?? 1) > 1 ? RECURRENCES.find((r) => r.id === v.recurrence)?.plural : RECURRENCES.find((r) => r.id === v.recurrence)?.every}</span></div>
+            </label>
+          ) : <span />}
+        </div>
+        {v.recurrence && v.recurrence !== 'none' && (
+          <>
+            <label className="field"><span>Repetir até (opcional)</span><input type="date" value={v.recurrence_until ?? ''} onChange={(e) => set({ recurrence_until: e.target.value || null })} /></label>
+            <p className="small muted">{v.starts_at ? recurrenceLabel({ starts_at: new Date(v.starts_at).toISOString(), recurrence: v.recurrence, recurrence_interval: v.recurrence_interval, recurrence_until: v.recurrence_until }) : ''}{v.id ? ' · alterar aqui muda todas as repetições' : ''}</p>
+          </>
+        )}
         <label className="field"><span>Local ou link</span><input value={v.location ?? ''} onChange={(e) => set({ location: e.target.value })} placeholder="Endereço (abre no Waze/Maps) ou link da reunião" /></label>
         <div className="field"><span>Lembretes</span>
           <div className="row wrap gap12">{REMINDERS.map((r) => <label key={r.m} className="check"><input type="checkbox" checked={(v.reminders ?? []).includes(r.m)} onChange={() => toggleRem(r.m)} />{r.label}</label>)}</div>
