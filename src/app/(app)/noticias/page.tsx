@@ -3,106 +3,98 @@ import { useEffect, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import { Chips, Empty, PageHeader } from '@/components/ui';
 import { Icon } from '@/components/Icons';
-import { api, useStatus } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
-import { dayLabel } from '@/lib/format';
-import { NEWS_LABELS } from '@/lib/types';
+import { NEWS_FEEDS, type Headline } from '@/lib/rss';
 
-interface Item { titulo: string; resumo: string; fontes: { titulo: string; url: string }[] }
-interface Digest { category: string; digest_date: string; items: Item[] }
+const ALL = Object.keys(NEWS_FEEDS);
 
-function host(u: string) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
+function ago(iso: string | null) {
+  if (!iso) return '';
+  const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (min < 60) return `há ${Math.max(1, min)} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  return `há ${d} dia${d > 1 ? 's' : ''}`;
+}
 
 export default function Noticias() {
   const { householdId } = useApp();
-  const status = useStatus();
+  const [cats, setCats] = useState<string[]>(ALL);
+  const [city, setCity] = useState('Jundiaí');
   const [cat, setCat] = useState('principais');
-  const [digest, setDigest] = useState<Digest | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [items, setItems] = useState<Headline[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [rev, setRev] = useState(0);
 
   useEffect(() => {
     if (!householdId) return;
-    let alive = true;
-    supabase().from('news_digests').select('category,digest_date,items').eq('household_id', householdId).eq('category', cat)
-      .order('digest_date', { ascending: false }).limit(1)
-      .then(({ data }) => { if (alive) { setDigest(((data ?? [])[0] as Digest) ?? null); setLoaded(true); } });
-    return () => { alive = false; };
-  }, [householdId, cat, rev]);
+    supabase().from('news_preferences').select('categories,city').eq('household_id', householdId).maybeSingle().then(({ data }) => {
+      if (!data) return;
+      const c = ((data.categories as string[]) ?? []).filter((x) => NEWS_FEEDS[x]);
+      // a categoria da cidade entra sempre que houver cidade
+      setCats(c.length ? Array.from(new Set(['principais', ...c, 'jundiai'])) : ALL);
+      if (data.city) setCity(data.city as string);
+    });
+  }, [householdId, rev]);
 
-  async function refresh() {
-    setBusy(true); setErr(null);
-    try { await api('/api/noticias/gerar', { category: cat }); setRev((r) => r + 1); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    setBusy(false);
-  }
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/noticias?cat=${cat}&cidade=${encodeURIComponent(city)}`)
+      .then((r) => r.json())
+      .then((j) => { if (alive) { setItems(j.items ?? []); setErr(j.error ?? null); } })
+      .catch(() => { if (alive) { setItems([]); setErr('Sem conexão com as fontes agora.'); } });
+    return () => { alive = false; };
+  }, [cat, city, rev]);
+
+  const label = (id: string) => NEWS_FEEDS[id].label.replace('{cidade}', city);
 
   return (
     <>
-      <PageHeader title="Notícias" subtitle="Pesquisa do Claude, com fontes">
+      <PageHeader title="Notícias" subtitle="Manchetes de fontes abertas, grátis">
         <button className="icon-btn" aria-label="Preferências de notícias" onClick={() => setPrefsOpen(true)}><Icon name="gear" /></button>
       </PageHeader>
-      <Chips value={cat} onChange={setCat} options={NEWS_LABELS} />
+      <Chips value={cat} onChange={(c) => { setItems(null); setCat(c); }} options={cats.filter((c) => NEWS_FEEDS[c]).map((c) => ({ id: c, label: label(c) }))} />
+      {err && <div className="card warn small">{err}</div>}
 
-      {status && !status.claude && <div className="card warn small">As notícias são pesquisadas pelo Claude. Configure a chave da API (ANTHROPIC_API_KEY) para ativar.</div>}
-
-      <div className="row between">
-        <span className="small muted">{digest ? `Atualizado: ${dayLabel(digest.digest_date)}` : loaded ? 'Ainda sem resumo nesta categoria.' : ''}</span>
-        {status?.claude && <button className="btn small" disabled={busy} onClick={refresh}>{busy ? 'Pesquisando… (até 1 min)' : 'Atualizar agora'}</button>}
-      </div>
-      {err && <p className="error">{err}</p>}
-
-      <div className="stack">
-        {loaded && (!digest || digest.items.length === 0) && <Empty>Os resumos saem automaticamente toda manhã. Você também pode tocar em “Atualizar agora”.</Empty>}
-        {digest?.items.map((n, i) => (
-          <article key={i} className={i === 0 ? 'card dark stack' : 'card stack'}>
-            <h3 style={{ fontSize: i === 0 ? 19 : 16, lineHeight: 1.3 }}>{n.titulo}</h3>
-            <p className={i === 0 ? '' : 'muted'} style={{ fontSize: 14 }}>{n.resumo}</p>
-            <div className="row wrap gap8">
-              {n.fontes.map((f) => (
-                <a key={f.url} href={f.url} target="_blank" rel="noopener noreferrer" className="pill" style={i === 0 ? { background: 'rgba(255,255,255,.12)', color: '#5EEAD4' } : {}}>{host(f.url)}</a>
-              ))}
+      <div className="list">
+        {items === null && <Empty>Carregando manchetes…</Empty>}
+        {items?.length === 0 && <Empty>Nenhuma manchete agora nesta categoria.</Empty>}
+        {items?.map((h, i) => (
+          <a key={h.link + i} href={h.link} target="_blank" rel="noopener noreferrer" className="list-item" style={{ color: 'inherit', textDecoration: 'none', alignItems: 'flex-start' }}>
+            <div className="grow">
+              <span className="strong" style={{ lineHeight: 1.35 }}>{h.title}</span>
+              <span className="small muted">{[h.source, ago(h.published)].filter(Boolean).join(' · ')}</span>
             </div>
-          </article>
+          </a>
         ))}
       </div>
-      <p className="small muted">Resumos feitos por IA a partir das fontes listadas. Confira a matéria original antes de decidir algo importante.</p>
+      <p className="small muted">Manchetes do Google Notícias, atualizadas a cada 30 minutos. Toque para ler na fonte original.</p>
 
-      {prefsOpen && <Prefs onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <Prefs city={city} cats={cats} onClose={() => { setPrefsOpen(false); setRev((r) => r + 1); }} />}
     </>
   );
 }
 
-function Prefs({ onClose }: { onClose: () => void }) {
+function Prefs({ city: c0, cats: k0, onClose }: { city: string; cats: string[]; onClose: () => void }) {
   const { householdId } = useApp();
-  const [cats, setCats] = useState<string[]>(NEWS_LABELS.map((n) => n.id));
-  const [city, setCity] = useState('Jundiaí');
-  const [extra, setExtra] = useState('');
-  useEffect(() => {
-    if (!householdId) return;
-    supabase().from('news_preferences').select('*').eq('household_id', householdId).maybeSingle().then(({ data }) => {
-      if (!data) return;
-      setCats(data.categories ?? []); setCity(data.city ?? 'Jundiaí'); setExtra(data.extra_topics ?? '');
-    });
-  }, [householdId]);
+  const [cats, setCats] = useState<string[]>(k0);
+  const [city, setCity] = useState(c0);
   async function save() {
-    await supabase().from('news_preferences').upsert({ household_id: householdId, categories: cats, city, extra_topics: extra || null });
+    await supabase().from('news_preferences').upsert({ household_id: householdId, categories: cats, city: city.trim() || 'Jundiaí' });
     onClose();
   }
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label="Preferências de notícias" onClick={(e) => e.stopPropagation()}>
         <div className="row between"><h2>Notícias da família</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
-        <div className="field"><span>Categorias do resumo diário</span>
-          <div className="row wrap gap12">{NEWS_LABELS.map((n) => (
-            <label key={n.id} className="check"><input type="checkbox" checked={cats.includes(n.id)} onChange={(e) => setCats((c) => e.target.checked ? [...c, n.id] : c.filter((x) => x !== n.id))} />{n.label}</label>
+        <div className="field"><span>Categorias</span>
+          <div className="row wrap gap12">{ALL.filter((id) => id !== 'principais' && id !== 'jundiai').map((id) => (
+            <label key={id} className="check"><input type="checkbox" checked={cats.includes(id)} onChange={(e) => setCats((c) => e.target.checked ? [...c, id] : c.filter((x) => x !== id))} />{NEWS_FEEDS[id].label}</label>
           ))}</div>
         </div>
-        <label className="field"><span>Cidade (descontos e notícias locais)</span><input value={city} onChange={(e) => setCity(e.target.value)} /></label>
-        <label className="field"><span>Interesses extras</span><textarea value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="Ex.: time de futebol, protendido, revisão da vida toda do INSS…" /></label>
-        <p className="small muted">Cada categoria é uma pesquisa por dia (custo da API do Claude por uso).</p>
+        <label className="field"><span>Cidade (notícias locais e descontos)</span><input value={city} onChange={(e) => setCity(e.target.value)} /></label>
         <button className="btn primary" onClick={save}>Salvar</button>
       </div>
     </div>

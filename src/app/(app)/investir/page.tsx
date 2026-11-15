@@ -7,6 +7,8 @@ import { api, useStatus } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { dayLabel, parseMoney } from '@/lib/format';
 import { ASSET_CLASSES } from '@/lib/types';
+import { realRate, type Indicator } from '@/lib/bcb';
+import type { Headline } from '@/lib/rss';
 
 interface Position { id: string; broker: string; name: string; asset_class: string; amount: number; maturity: string | null; notes: string | null }
 interface Brief { week_start: string; content: { resumo: string; indicadores: { nome: string; valor: string; comentario: string }[]; carteira: string; ideias: { curto: string[]; medio: string[]; longo: string[] }; fontes: { titulo: string; url: string }[] } }
@@ -104,12 +106,12 @@ export default function Investir() {
 
         <div className="stack">
           <div className="row between">
-            <h2>Resumo da semana</h2>
+            <h2>{status && !status.claude ? 'Mercado hoje' : 'Resumo da semana'}</h2>
             {status?.claude && <button className="btn small" disabled={busy} onClick={generate}>{busy ? 'Pesquisando…' : brief ? 'Refazer' : 'Gerar agora'}</button>}
           </div>
-          {status && !status.claude && <div className="card warn small">O resumo semanal é pesquisado pelo Claude. Configure a chave da API para ativar.</div>}
+          {status && !status.claude && <FreeBrief risk={risk} />}
           {err && <p className="error">{err}</p>}
-          {!brief && <Empty>O resumo sai automaticamente toda segunda de manhã.</Empty>}
+          {status?.claude && !brief && <Empty>O resumo sai automaticamente toda segunda de manhã.</Empty>}
           {brief && (
             <>
               <div className="card stack">
@@ -187,5 +189,71 @@ function PositionSheet({ value, onClose, onSaved }: { value: Partial<Position>; 
         {v.id && <button className="btn danger" onClick={remove}><Icon name="trash" size={16} /> Apagar</button>}
       </div>
     </div>
+  );
+}
+
+const IDEAS: Record<'curto' | 'medio' | 'longo', Record<'conservador' | 'moderado' | 'arrojado', string[]>> = {
+  curto: {
+    conservador: ['Reserva de emergência (6 meses de gastos) em Tesouro Selic ou CDB com liquidez diária de banco grande.', 'Para gastos de até 1 ano, CDB/LCI com vencimento antes da data de uso.'],
+    moderado: ['Reserva de emergência em Tesouro Selic ou CDB com liquidez diária.', 'LCI/LCA (isentas de IR) para valores que não serão usados nos próximos meses.'],
+    arrojado: ['Mesmo arrojado, a reserva de emergência fica em renda fixa com liquidez diária.', 'Compare a rentabilidade líquida de CDBs com o CDI atual antes de aplicar.'],
+  },
+  medio: {
+    conservador: ['Tesouro Prefixado ou IPCA+ com vencimento alinhado à meta (ex.: carro, mudança).', 'CDBs de prazo médio cobertos pelo FGC, respeitando o limite por banco.'],
+    moderado: ['Tesouro IPCA+ para proteger da inflação metas de 2 a 5 anos.', 'Uma parcela pequena em fundos imobiliários diversificados.'],
+    arrojado: ['Combinação de títulos IPCA+ com fundos imobiliários e multimercados.', 'Rebalancear a carteira a cada 6 meses.'],
+  },
+  longo: {
+    conservador: ['Tesouro IPCA+ longo (aposentadoria) e previdência com taxa baixa.', 'Avaliar PGBL x VGBL conforme a declaração de IR.'],
+    moderado: ['Aportes mensais em ETFs de ações e fundos imobiliários, sem tentar acertar o momento.', 'Previdência privada se fizer sentido no IR de cada um.'],
+    arrojado: ['Parcela maior em ações/ETFs (inclusive exterior), com aportes regulares.', 'Manter disciplina: não vender em quedas por impulso.'],
+  },
+};
+
+function FreeBrief({ risk }: { risk: 'conservador' | 'moderado' | 'arrojado' }) {
+  const [ind, setInd] = useState<Indicator[] | null>(null);
+  const [news, setNews] = useState<Headline[]>([]);
+  const [horizon, setHorizon] = useState<'curto' | 'medio' | 'longo'>('curto');
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/indicadores').then((r) => r.json()).then((j) => { if (alive) setInd(j.items ?? []); }).catch(() => { if (alive) setInd([]); });
+    fetch('/api/noticias?cat=financas').then((r) => r.json()).then((j) => { if (alive) setNews((j.items ?? []).slice(0, 5)); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const cdi = ind?.find((i) => i.nome === 'CDI')?.valor;
+  const ipca = ind?.find((i) => i.nome.startsWith('IPCA'))?.valor;
+  const fmt = (i: Indicator) => i.unidade === 'R$' ? `R$ ${i.valor.toFixed(2).replace('.', ',')}` : `${i.valor.toFixed(2).replace('.', ',')}%`;
+  return (
+    <>
+      <div className="grid2">
+        {ind === null && <span className="small muted">Carregando indicadores…</span>}
+        {ind?.map((i) => (
+          <div key={i.nome} className="card stack" style={{ padding: 12, gap: 2 }}>
+            <span className="small muted strong">{i.nome}</span>
+            <span className="mid">{fmt(i)}</span>
+            <span className="small muted">{i.dica}</span>
+          </div>
+        ))}
+      </div>
+      {cdi !== undefined && ipca !== undefined && (
+        <div className="card soft small">Uma aplicação a 100% do CDI rende hoje cerca de <strong>{realRate(cdi, ipca).toFixed(1).replace('.', ',')}% ao ano acima da inflação</strong> (antes do IR).</div>
+      )}
+      <div className="stack" style={{ gap: 8 }}>
+        <span className="small strong muted">IDEIAS PARA ESTUDAR · PERFIL {risk.toUpperCase()}</span>
+        <Segmented value={horizon} onChange={setHorizon} options={[{ id: 'curto', label: 'Curto prazo' }, { id: 'medio', label: 'Médio prazo' }, { id: 'longo', label: 'Longo prazo' }]} />
+        <div className="list">{IDEAS[horizon][risk].map((t) => <div key={t} className="list-item small">{t}</div>)}</div>
+      </div>
+      {news.length > 0 && (
+        <div className="stack" style={{ gap: 6 }}>
+          <span className="small strong muted">NOTÍCIAS DE FINANÇAS</span>
+          <div className="list">{news.map((h) => (
+            <a key={h.link} href={h.link} target="_blank" rel="noopener noreferrer" className="list-item" style={{ color: 'inherit', textDecoration: 'none' }}>
+              <span className="grow"><span className="small strong">{h.title}</span><span className="small muted">{h.source}</span></span>
+            </a>
+          ))}</div>
+        </div>
+      )}
+      <p className="small muted">Indicadores oficiais do Banco Central. As ideias são educativas e gerais, não uma recomendação: confirme com seu assessor antes de aplicar.</p>
+    </>
   );
 }

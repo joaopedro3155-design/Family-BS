@@ -11,6 +11,8 @@ import { normalizeName, matchStockItem, estimateDailyUsage, daysLeft, needsBuyin
 import { parseNfceQr, parseNfceHtml } from '../src/lib/nfce';
 import { extractJson, filterSourced } from '../src/lib/ai-utils';
 import { buildIcs } from '../src/lib/ics';
+import { parseRss, mergeHeadlines } from '../src/lib/rss';
+import { parseSgs, realRate } from '../src/lib/bcb';
 
 let n = 0;
 const t = (name: string, fn: () => void) => { fn(); n++; console.log('ok -', name); };
@@ -151,5 +153,20 @@ if (existsSync(csv)) {
     console.log(`   ${plan.length} recorrentes (${plan.filter((p) => p.active).length} ativas)`);
   });
 }
+
+t('notícias grátis (RSS) e indicadores do BC', () => {
+  const xml = `<rss><channel><item><title>Selic sobe para 15% - G1</title><link>https://news.google.com/a</link><pubDate>Fri, 14 Nov 2026 10:00:00 GMT</pubDate><source url="https://g1.globo.com">G1</source></item><item><title><![CDATA[Jundiaí &amp; região: obras]]></title><link>https://news.google.com/b</link><pubDate>Fri, 14 Nov 2026 12:00:00 GMT</pubDate></item></channel></rss>`;
+  const items = parseRss(xml);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, 'Selic sobe para 15%');
+  assert.equal(items[0].source, 'G1');
+  assert.ok(items[1].title.includes('Jundiaí & região'));
+  const merged = mergeHeadlines([items, items], 10);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].link, 'https://news.google.com/b');
+  const v = parseSgs([{ data: '13/11/2026', valor: '15.00' }]);
+  assert.deepEqual(v, { data: '2026-11-13', valor: 15 });
+  assert.ok(Math.abs(realRate(15, 5) - 9.52) < 0.01);
+});
 
 console.log(`\n${n} grupos de teste passaram.`);

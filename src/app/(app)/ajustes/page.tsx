@@ -167,7 +167,8 @@ export default function Ajustes() {
 
         <section className="card stack">
           <h2>Integrações</h2>
-          <div className="row between"><span className="strong">Claude (leitura de notas, notícias, investimentos)</span><span className={status?.claude ? 'pill' : 'pill gray'}>{status?.claude ? 'Ligado' : 'Configurar'}</span></div>
+          <div className="row between"><span className="strong">Claude (leitura de notas, notícias, investimentos)</span><span className={status?.claude ? 'pill' : 'pill gray'}>{status?.claude ? 'Ligado' : 'Opcional (pago)'}</span></div>
+          <div className="row between"><span className="strong">Notícias e indicadores</span><span className="pill">Grátis</span></div>
           <div className="row between"><span className="strong">Bot do Telegram</span><span className={status?.telegram ? 'pill' : 'pill gray'}>{status?.telegram ? 'Ligado' : 'Configurar'}</span></div>
           <div className="row between"><span className="strong">Open Finance (Pluggy / Belvo)</span><span className="pill gray">Pausado</span></div>
         </section>
