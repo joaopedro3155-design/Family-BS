@@ -117,3 +117,8 @@ export const ASSET_CLASSES: { id: string; label: string; color: string }[] = [
   { id: 'cripto', label: 'Cripto', color: '#D6336C' },
   { id: 'outros', label: 'Outros', color: '#78716C' },
 ];
+
+/** Ordem das categorias igual à planilha (as subcategorias ficam dentro de cada uma). */
+export const GROUP_ORDER = ['Receitas', 'Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Educação', 'Filha', 'Lazer', 'Cuidados Pessoais', 'Vestuário', 'Pet', 'Animal Estimação', 'Despesas Bancárias', 'Gratidão', 'Investimento', 'Despesas gerais', 'Outros'];
+export const groupRank = (g: string) => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? 90 : i; };
+export const sortGroups = (gs: string[]) => [...new Set(gs)].sort((a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b, 'pt-BR'));

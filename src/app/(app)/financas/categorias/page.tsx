@@ -5,7 +5,7 @@ import { EyeButton, Money, PageHeader, Segmented } from '@/components/ui';
 import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { parseMoney } from '@/lib/format';
-import type { Category, Kind } from '@/lib/types';
+import { sortGroups, type Category, type Kind } from '@/lib/types';
 
 export default function Categorias() {
   const { accounts, categories, householdId, reloadCategories } = useApp();
@@ -13,7 +13,14 @@ export default function Categorias() {
   const [editing, setEditing] = useState<Partial<Category> | null>(null);
   const account = accounts.find((a) => a.kind === kind);
   const list = categories.filter((c) => c.account_id === account?.id);
-  const groups = Array.from(new Set(list.map((c) => c.grupo))).sort();
+  const groups = sortGroups(list.map((c) => (c.tipo === 'receita' ? 'Receitas' : c.grupo || 'Outros')));
+  const inGroup = (g: string) => list.filter((c) => (c.tipo === 'receita' ? 'Receitas' : c.grupo || 'Outros') === g).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  async function renameGroup(g: string) {
+    const n = prompt(`Novo nome para a categoria “${g}”:`, g)?.trim();
+    if (!n || n === g || !account) return;
+    await supabase().from('categories').update({ grupo: n }).eq('account_id', account.id).eq('grupo', g);
+    await reloadCategories();
+  }
 
   return (
     <>
@@ -21,14 +28,20 @@ export default function Categorias() {
         <EyeButton />
       </PageHeader>
       <Segmented value={kind} onChange={setKind} options={[{ id: 'PF', label: 'Família (PF)' }, { id: 'PJ', label: 'Empresa (PJ)' }]} />
-      <p className="muted small">Os gastos de João e Kamila usam as mesmas categorias da família. Coloque um limite mensal para receber aviso em 80% e 100%.</p>
-      <button className="btn primary" onClick={() => setEditing({ account_id: account?.id, tipo: 'despesa', grupo: 'Outros', name: '' })}><Icon name="plus" size={16} /> Nova categoria</button>
+      <p className="muted small">Como na planilha: cada <strong>categoria</strong> (Moradia, Alimentação, Pet…) tem suas <strong>subcategorias</strong> (Aluguel, Luz, Água…). Os gastos de João e Kamila usam as mesmas da família. Coloque um limite mensal na subcategoria para receber aviso em 80% e 100%.</p>
+      <button className="btn primary" onClick={() => setEditing({ account_id: account?.id, tipo: 'despesa', grupo: '', name: '' })}><Icon name="plus" size={16} /> Nova categoria</button>
 
       {groups.map((g) => (
         <section key={g} className="stack" style={{ gap: 6 }}>
-          <span className="small strong muted">{g.toUpperCase()}</span>
+          <div className="row between">
+            <span className="strong">{g}</span>
+            <span className="row gap8">
+              {g !== 'Receitas' && <button className="link-btn small" onClick={() => renameGroup(g)}>Renomear</button>}
+              <button className="link-btn small" onClick={() => setEditing({ account_id: account?.id, tipo: g === 'Receitas' ? 'receita' : 'despesa', grupo: g === 'Receitas' ? 'Receitas' : g, name: '' })}>+ subcategoria</button>
+            </span>
+          </div>
           <div className="list">
-            {list.filter((c) => c.grupo === g).map((c) => (
+            {inGroup(g).map((c) => (
               <div key={c.id} className="list-item" style={{ opacity: c.archived ? 0.5 : 1 }}>
                 <div className="grow">
                   <span className="strong">{c.name}</span>
@@ -69,19 +82,20 @@ function CategorySheet({ value, groups, onClose, onSave }: { value: Partial<Cate
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label="Categoria" onClick={(e) => e.stopPropagation()}>
-        <div className="row between"><h2>{v.id ? 'Editar categoria' : 'Nova categoria'}</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
-        <label className="field"><span>Nome</span><input value={v.name ?? ''} onChange={(e) => set({ name: e.target.value })} /></label>
-        <label className="field"><span>Grupo</span><input list="grupos" value={v.grupo ?? ''} onChange={(e) => set({ grupo: e.target.value })} /></label>
+        <div className="row between"><h2>{v.id ? 'Editar subcategoria' : v.grupo ? `Nova subcategoria em ${v.grupo}` : 'Nova categoria'}</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
+        <label className="field"><span>Categoria</span><input list="grupos" value={v.grupo ?? ''} onChange={(e) => set({ grupo: e.target.value })} placeholder="Ex.: Moradia, Pet, Viagem" /></label>
+        <label className="field"><span>Subcategoria</span><input value={v.name ?? ''} onChange={(e) => set({ name: e.target.value })} placeholder="Ex.: Aluguel, Banho, Hotel" /></label>
         <datalist id="grupos">{groups.map((g) => <option key={g} value={g} />)}</datalist>
         <Segmented value={v.tipo ?? 'despesa'} onChange={(t) => set({ tipo: t })} options={[{ id: 'despesa', label: 'Despesa' }, { id: 'receita', label: 'Receita' }]} />
         {v.tipo !== 'receita' && <label className="field"><span>Limite mensal (opcional)</span><input inputMode="decimal" placeholder="Ex.: 600,00" value={limit} onChange={(e) => setLimit(e.target.value)} /></label>}
         {v.id && <label className="check"><input type="checkbox" checked={!!v.archived} onChange={(e) => set({ archived: e.target.checked })} />Arquivar (esconde dos lançamentos novos)</label>}
         {err && <p className="error">{err}</p>}
         <button className="btn primary" onClick={async () => {
-          if (!v.name?.trim()) { setErr('Dê um nome.'); return; }
+          if (!v.grupo?.trim()) { setErr('Informe a categoria.'); return; }
+          if (!v.name?.trim()) { setErr('Informe a subcategoria.'); return; }
           const l = limit.trim() ? parseMoney(limit) : null;
           if (l !== null && Number.isNaN(l)) { setErr('Limite inválido.'); return; }
-          const e = await onSave({ ...v, name: v.name.trim(), monthly_limit: v.tipo === 'receita' ? null : l });
+          const e = await onSave({ ...v, grupo: v.tipo === 'receita' ? 'Receitas' : v.grupo.trim(), name: v.name.trim(), monthly_limit: v.tipo === 'receita' ? null : l });
           if (e) setErr(e);
         }}>Salvar</button>
       </div>

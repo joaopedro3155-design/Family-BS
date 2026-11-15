@@ -6,11 +6,8 @@ import { Bar, Chips, Empty, EyeButton, Money, PageHeader, Segmented } from '@/co
 import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { addMonths, monthKey, monthLabel, monthRange, todayISO } from '@/lib/format';
-import type { Category, Kind, Transaction } from '@/lib/types';
+import { groupRank, type Category, type Kind, type Transaction } from '@/lib/types';
 
-// Mesma ordem da planilha
-const GROUP_ORDER = ['Receitas', 'Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Educação', 'Filha', 'Lazer', 'Cuidados Pessoais', 'Vestuário', 'Animal Estimação', 'Despesas Bancárias', 'Gratidão', 'Investimento', 'Despesas gerais', 'Outros'];
-const groupRank = (g: string) => { const i = GROUP_ORDER.indexOf(g); return i < 0 ? 90 : i; };
 const PALETTE = ['#E8590C', '#57524C', '#F59F00', '#9C6644', '#FD7E14', '#A8A29E', '#C2470A', '#D6B48C', '#7A2E05', '#FFA94D', '#3F3A35', '#E8B07A', '#B05A2E', '#8F857B', '#FFC078', '#5C4033'];
 type View = 'resumo' | 'planilha' | 'lancamentos';
 
@@ -349,14 +346,14 @@ function Planilha({ month, txs, categories, accountId }: { month: string; txs: T
   const addRow = (g: string, tipo: string) => adding === g ? (
     <tr className="add-row"><td colSpan={4}>
       <form className="row gap8" onSubmit={(e) => { e.preventDefault(); addCategory(g, tipo); }}>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={`Nova categoria em ${g}`} />
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={`Nova subcategoria em ${g}`} />
         <button className="btn small primary" type="submit">Salvar</button>
         <button className="link-btn" type="button" onClick={() => { setAdding(null); setErr(null); }}>Cancelar</button>
       </form>
       {err && <span className="error small">{err}</span>}
     </td></tr>
   ) : (
-    <tr className="add-row"><td colSpan={4}><button className="link-btn small" onClick={() => { setAdding(g); setName(''); setErr(null); }}>+ categoria</button></td></tr>
+    <tr className="add-row"><td colSpan={4}><button className="link-btn small" onClick={() => { setAdding(g); setName(''); setErr(null); }}>+ subcategoria</button></td></tr>
   );
 
   const mLabel = (mo: string) => monthLabel(mo).split(' ')[0].slice(0, 3);
@@ -364,7 +361,7 @@ function Planilha({ month, txs, categories, accountId }: { month: string; txs: T
     <section className="stack">
       <div className="sheet-wrap">
         <table className="xls">
-          <thead><tr><th>Categoria</th>{months.map((mo) => <th key={mo} className={mo === month ? 'cur' : ''}>{mLabel(mo)}</th>)}</tr></thead>
+          <thead><tr><th>Categoria › subcategoria</th>{months.map((mo) => <th key={mo} className={mo === month ? 'cur' : ''}>{mLabel(mo)}</th>)}</tr></thead>
           <tbody>
             {sections.map((sec) => (
               <Fragment key={sec.g}>
@@ -385,17 +382,17 @@ function Planilha({ month, txs, categories, accountId }: { month: string; txs: T
         </table>
       </div>
       <div className="card stack">
-        <span className="strong">Novo grupo</span>
+        <span className="strong">Nova categoria</span>
         <form className="stack" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); addCategory('', 'despesa'); }}>
           <div className="grid2">
-            <input value={newGroup} onChange={(e) => { setNewGroup(e.target.value); setAdding(null); }} placeholder="Grupo (ex.: Viagem)" />
-            <input value={adding === null ? name : ''} onChange={(e) => setName(e.target.value)} placeholder="Primeira categoria" />
+            <input value={newGroup} onChange={(e) => { setNewGroup(e.target.value); setAdding(null); }} placeholder="Categoria (ex.: Viagem)" />
+            <input value={adding === null ? name : ''} onChange={(e) => setName(e.target.value)} placeholder="Primeira subcategoria (ex.: Hotel)" />
           </div>
-          <button className="btn small" type="submit">Criar grupo</button>
+          <button className="btn small" type="submit">Criar categoria</button>
           {err && adding === null && <span className="error small">{err}</span>}
         </form>
       </div>
-      <p className="small muted">Toque em “+ categoria” para incluir uma linha no grupo. Para limites e para renomear, use Categorias.</p>
+      <p className="small muted">Toque em “+ subcategoria” para incluir uma linha dentro da categoria. Para limites e para renomear, use Categorias.</p>
     </section>
   );
 }

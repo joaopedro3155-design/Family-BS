@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { PageHeader, Segmented } from '@/components/ui';
+import { PageHeader, Segmented, CategorySelect } from '@/components/ui';
 import { Icon } from '@/components/Icons';
 import { api, useStatus } from '@/lib/api';
 import { compressImage, decodeQr, qrToUrl, scanRegion } from '@/lib/image';
@@ -257,7 +257,7 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
         {splits.map((x, i) => (
           <div key={i} className="stack" style={{ gap: 4 }}>
             <div className="row gap8">
-              <select className="grow" value={x.categoryId} onChange={(e) => setSplit(i, { categoryId: e.target.value })}><option value="">—</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              <CategorySelect className="grow" cats={cats} value={x.categoryId} onChange={(id) => setSplit(i, { categoryId: id })} />
               {splits.length > 1 && <input style={{ width: 110 }} inputMode="decimal" value={x.amount} onChange={(e) => setSplit(i, { amount: e.target.value })} />}
               {splits.length > 1 && <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="Remover" onClick={() => setSplits((l) => l.filter((_, j) => j !== i))}><Icon name="trash" size={16} /></button>}
             </div>

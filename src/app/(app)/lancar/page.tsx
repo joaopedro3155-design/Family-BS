@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { PageHeader, Segmented } from '@/components/ui';
+import { PageHeader, Segmented, CategorySelect } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { addMonthsToDate, money, parseMoney, splitInstallments, todayISO } from '@/lib/format';
 import { parseMessage } from '@/lib/parse-message';
@@ -34,7 +34,6 @@ export default function Lancar() {
 
   const account = accounts.find((a) => a.kind === kind);
   const cats = categories.filter((c) => c.account_id === account?.id && c.tipo === tipo && !c.archived);
-  const groups = Array.from(new Set(cats.map((c) => c.grupo))).sort();
 
   async function interpret() {
     setErr(null);
@@ -124,12 +123,7 @@ export default function Lancar() {
           </div>
           <label className="field"><span>Descrição</span><input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="O que foi" /></label>
           <label className="field"><span>Categoria</span>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">Escolha…</option>
-              {groups.map((g) => (
-                <optgroup key={g} label={g}>{cats.filter((c) => c.grupo === g).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-              ))}
-            </select>
+            <CategorySelect cats={cats} value={categoryId} onChange={setCategoryId} emptyLabel="Escolha…" />
           </label>
           <div className="grid2">
             <label className="field"><span>Forma de pagamento</span>

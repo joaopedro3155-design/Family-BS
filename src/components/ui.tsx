@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
+import { sortGroups, type Category } from '@/lib/types';
 import { useApp } from './AppProvider';
 import { Icon } from './Icons';
 import { money } from '@/lib/format';
@@ -113,5 +114,20 @@ export function LocationLink({ location }: { location: string }) {
         </span>
       )}
     </span>
+  );
+}
+
+/** Seletor "Categoria › Subcategoria" (agrupado como na planilha). */
+export function CategorySelect({ cats, value, onChange, className, emptyLabel = '—' }: { cats: Category[]; value: string; onChange: (id: string) => void; className?: string; emptyLabel?: string }) {
+  const groups = sortGroups(cats.map((c) => c.grupo || 'Outros'));
+  return (
+    <select className={className} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{emptyLabel}</option>
+      {groups.map((g) => (
+        <optgroup key={g} label={g}>
+          {cats.filter((c) => (c.grupo || 'Outros') === g).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </optgroup>
+      ))}
+    </select>
   );
 }

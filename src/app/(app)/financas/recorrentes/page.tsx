@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { Empty, EyeButton, Money, PageHeader, Segmented } from '@/components/ui';
+import { Empty, EyeButton, Money, PageHeader, Segmented, CategorySelect } from '@/components/ui';
 import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { monthKey, monthRange, parseMoney, todayISO } from '@/lib/format';
@@ -134,10 +134,7 @@ function BillSheet({ value, onClose, onSaved }: { value: Partial<RecurringBill>;
         <div className="grid2">
           <label className="field"><span>Valor</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={v.variable ? 'média (opcional)' : '0,00'} /></label>
           <label className="field"><span>Categoria</span>
-            <select value={v.category_id ?? ''} onChange={(e) => set({ category_id: e.target.value || null })}>
-              <option value="">—</option>
-              {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <CategorySelect cats={cats} value={v.category_id ?? ''} onChange={(id) => set({ category_id: id || null })} />
           </label>
         </div>
         <label className="check"><input type="checkbox" checked={!!v.variable} onChange={(e) => set({ variable: e.target.checked })} />Valor muda todo mês (luz, água, gás)</label>
