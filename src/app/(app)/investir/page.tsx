@@ -10,7 +10,11 @@ import { ASSET_CLASSES } from '@/lib/types';
 import { realRate, type Indicator } from '@/lib/bcb';
 import type { Headline } from '@/lib/rss';
 
-interface Position { id: string; broker: string; name: string; asset_class: string; amount: number; maturity: string | null; notes: string | null }
+interface Position { id: string; owner: string; broker: string; name: string; asset_class: string; amount: number; invested: number | null; rate: string | null; applied_at: string | null; liquidity: string | null; maturity: string | null; notes: string | null }
+
+const DEFAULT_OWNERS = ['João Pedro', 'Kamila', 'Filha', 'Sogro'];
+const LIQUIDITY = ['Diária', 'No vencimento', 'D+1 a D+30', 'Mais de 30 dias'];
+const fmtDate = (d: string) => d.split('-').reverse().join('/');
 interface Brief { week_start: string; content: { resumo: string; indicadores: { nome: string; valor: string; comentario: string }[]; carteira: string; ideias: { curto: string[]; medio: string[]; longo: string[] }; fontes: { titulo: string; url: string }[] } }
 
 const label = (id: string) => ASSET_CLASSES.find((a) => a.id === id)?.label ?? id;
@@ -27,6 +31,7 @@ export default function Investir() {
   const [editing, setEditing] = useState<Partial<Position> | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [owner, setOwner] = useState('Todos');
   const [rev, setRev] = useState(0);
   const reload = () => setRev((r) => r + 1);
 
@@ -47,8 +52,15 @@ export default function Investir() {
     return () => { alive = false; };
   }, [householdId, rev]);
 
-  const total = positions.reduce((s, p) => s + Number(p.amount), 0);
-  const byClass = ASSET_CLASSES.map((a) => ({ ...a, v: positions.filter((p) => p.asset_class === a.id).reduce((s, p) => s + Number(p.amount), 0) })).filter((a) => a.v > 0);
+  const owners = [...new Set([...DEFAULT_OWNERS, ...positions.map((p) => p.owner || 'João Pedro')])];
+  const usedOwners = owners.filter((o) => positions.some((p) => (p.owner || 'João Pedro') === o));
+  const shown = owner === 'Todos' ? positions : positions.filter((p) => (p.owner || 'João Pedro') === owner);
+  const total = shown.reduce((s, p) => s + Number(p.amount), 0);
+  const invested = shown.reduce((s, p) => s + Number(p.invested ?? p.amount), 0);
+  const gain = total - invested;
+  const ownerTotal = (o: string) => positions.filter((p) => (p.owner || 'João Pedro') === o).reduce((s, p) => s + Number(p.amount), 0);
+  const newPosition = () => setEditing({ owner: owner === 'Todos' ? 'João Pedro' : owner, broker: 'XP', asset_class: 'renda_fixa', amount: 0 });
+  const byClass = ASSET_CLASSES.map((a) => ({ ...a, v: shown.filter((p) => p.asset_class === a.id).reduce((s, p) => s + Number(p.amount), 0) })).filter((a) => a.v > 0);
 
   async function saveProfile(r = risk, g = goals) {
     await supabase().from('investor_profile').upsert({ household_id: householdId, risk: r, goals: g || null });
@@ -61,16 +73,30 @@ export default function Investir() {
 
   return (
     <>
-      <PageHeader title="Investimentos" subtitle="Carteira XP e resumo semanal">
+      <PageHeader title="Investimentos" subtitle="Carteira de cada titular">
         <EyeButton />
-        <button className="icon-btn" aria-label="Adicionar posição" onClick={() => setEditing({ broker: 'XP', asset_class: 'renda_fixa', amount: 0 })}><Icon name="plus" /></button>
+        <button className="icon-btn" aria-label="Adicionar investimento" onClick={newPosition}><Icon name="plus" /></button>
       </PageHeader>
+
+      {usedOwners.length > 0 && (
+        <div className="chips" style={{ marginBottom: 12 }}>
+          {['Todos', ...usedOwners].map((o) => (
+            <button key={o} className={owner === o ? 'chip on' : 'chip'} onClick={() => setOwner(o)}>{o}</button>
+          ))}
+        </div>
+      )}
 
       <div className="cols">
         <div className="stack">
           <div className="card dark stack">
-            <span className="small strong muted">Patrimônio investido</span>
+            <span className="small strong muted">{owner === 'Todos' ? 'Total de todos os titulares' : `Investimentos de ${owner}`}</span>
             <span className="big"><Money v={total} /></span>
+            {invested > 0 && Math.abs(gain) >= 0.01 && (
+              <span className="small" style={{ color: gain >= 0 ? '#5eead4' : '#fca5a5' }}>{gain >= 0 ? 'Rendeu ' : 'Perdeu '}<Money v={Math.abs(gain)} /> sobre <Money v={invested} /> aplicados</span>
+            )}
+            {owner === 'Todos' && usedOwners.length > 1 && (
+              <div className="grid2 small">{usedOwners.map((o) => <span key={o}>{o}: <Money v={ownerTotal(o)} /></span>)}</div>
+            )}
             {total > 0 && (
               <>
                 <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', gap: 2 }}>
@@ -84,13 +110,13 @@ export default function Investir() {
           </div>
 
           <section className="stack">
-            <h2>Posições</h2>
+            <div className="row between"><h2>Investimentos</h2><button className="btn small" onClick={newPosition}><Icon name="plus" size={16} /> Adicionar</button></div>
             <div className="list">
-              {positions.length === 0 && <Empty>Cadastre suas aplicações da XP (nome, tipo e valor). Atualize os valores quando quiser, pelo extrato.</Empty>}
-              {positions.map((p) => (
+              {shown.length === 0 && <Empty>Cadastre cada aplicação: de quem é, nome, tipo e valor. Atualize os valores pelo extrato quando quiser.</Empty>}
+              {shown.map((p) => (
                 <button key={p.id} className="list-item" style={{ background: 'none', border: 'none', borderBottom: '1px solid var(--line2)', width: '100%', textAlign: 'left', cursor: 'pointer' }} onClick={() => setEditing(p)}>
                   <span className="dot" style={{ background: color(p.asset_class) }} />
-                  <span className="grow"><span className="strong">{p.name}</span><span className="small muted">{label(p.asset_class)} · {p.broker}{p.maturity ? ` · vence ${p.maturity.split('-').reverse().join('/')}` : ''}</span></span>
+                  <span className="grow"><span className="strong">{p.name}</span><span className="small muted">{owner === 'Todos' ? `${p.owner || 'João Pedro'} · ` : ''}{label(p.asset_class)} · {p.broker}{p.rate ? ` · ${p.rate}` : ''}{p.maturity ? ` · vence ${fmtDate(p.maturity)}` : ''}</span></span>
                   <span className="strong"><Money v={Number(p.amount)} /></span>
                 </button>
               ))}
@@ -146,44 +172,64 @@ export default function Investir() {
         </div>
       </div>
 
-      {editing && <PositionSheet value={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {editing && <PositionSheet value={editing} owners={owners} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
     </>
   );
 }
 
-function PositionSheet({ value, onClose, onSaved }: { value: Partial<Position>; onClose: () => void; onSaved: () => void }) {
+function PositionSheet({ value, owners, onClose, onSaved }: { value: Partial<Position>; owners: string[]; onClose: () => void; onSaved: () => void }) {
   const { householdId } = useApp();
   const [v, setV] = useState(value);
   const [amount, setAmount] = useState(value.amount ? String(value.amount).replace('.', ',') : '');
+  const [inv, setInv] = useState(value.invested ? String(value.invested).replace('.', ',') : '');
+  const [newOwner, setNewOwner] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (p: Partial<Position>) => setV((o) => ({ ...o, ...p }));
   async function save() {
     const a = parseMoney(amount);
-    if (!v.name?.trim() || Number.isNaN(a)) { setErr('Preencha nome e valor.'); return; }
-    const row = { household_id: householdId, broker: v.broker || 'XP', name: v.name.trim(), asset_class: v.asset_class, amount: a, maturity: v.maturity || null, notes: v.notes || null, updated_at: new Date().toISOString() };
+    const i = inv.trim() ? parseMoney(inv) : null;
+    if (!v.owner?.trim()) { setErr('Informe de quem é o investimento.'); return; }
+    if (!v.name?.trim() || Number.isNaN(a) || (i !== null && Number.isNaN(i))) { setErr('Preencha nome e valor.'); return; }
+    const row = { household_id: householdId, owner: v.owner.trim(), broker: v.broker || 'XP', name: v.name.trim(), asset_class: v.asset_class, amount: a, invested: i, rate: v.rate?.trim() || null, applied_at: v.applied_at || null, liquidity: v.liquidity || null, maturity: v.maturity || null, notes: v.notes?.trim() || null, updated_at: new Date().toISOString() };
     const sb = supabase();
     const { error } = v.id ? await sb.from('portfolio_positions').update(row).eq('id', v.id) : await sb.from('portfolio_positions').insert(row);
     if (error) { setErr(error.message); return; }
     onSaved();
   }
   async function remove() {
-    if (!v.id || !confirm('Apagar esta posição?')) return;
+    if (!v.id || !confirm('Apagar este investimento?')) return;
     await supabase().from('portfolio_positions').delete().eq('id', v.id);
     onSaved();
   }
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label="Posição" onClick={(e) => e.stopPropagation()}>
-        <div className="row between"><h2>{v.id ? 'Editar posição' : 'Nova posição'}</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
-        <label className="field"><span>Nome</span><input value={v.name ?? ''} onChange={(e) => set({ name: e.target.value })} placeholder="CDB Banco X 110% CDI, Tesouro IPCA+ 2035…" /></label>
+        <div className="row between"><h2>{v.id ? 'Editar investimento' : 'Novo investimento'}</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
+        <div className="field"><span>De quem é</span>
+          <div className="chips" style={{ flexWrap: 'wrap' }}>
+            {owners.map((o) => <button key={o} type="button" className={!newOwner && v.owner === o ? 'chip on' : 'chip'} onClick={() => { setNewOwner(false); set({ owner: o }); }}>{o}</button>)}
+            <button type="button" className={newOwner ? 'chip on' : 'chip'} onClick={() => { setNewOwner(true); set({ owner: '' }); }}>+ Outra pessoa</button>
+          </div>
+          {newOwner && <input autoFocus value={v.owner ?? ''} onChange={(e) => set({ owner: e.target.value })} placeholder="Nome (ex.: nome da filha, sogro)" />}
+        </div>
+        <label className="field"><span>Nome do investimento</span><input value={v.name ?? ''} onChange={(e) => set({ name: e.target.value })} placeholder="CDB Banco X 110% CDI, Tesouro IPCA+ 2035…" /></label>
         <div className="grid2">
           <label className="field"><span>Tipo</span><select value={v.asset_class} onChange={(e) => set({ asset_class: e.target.value })}>{ASSET_CLASSES.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select></label>
+          <label className="field"><span>Corretora / banco</span><input value={v.broker ?? 'XP'} onChange={(e) => set({ broker: e.target.value })} /></label>
+        </div>
+        <div className="grid2">
+          <label className="field"><span>Valor aplicado</span><input inputMode="decimal" value={inv} onChange={(e) => setInv(e.target.value)} placeholder="Opcional" /></label>
           <label className="field"><span>Valor atual</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
         </div>
         <div className="grid2">
-          <label className="field"><span>Corretora</span><input value={v.broker ?? 'XP'} onChange={(e) => set({ broker: e.target.value })} /></label>
+          <label className="field"><span>Rentabilidade</span><input value={v.rate ?? ''} onChange={(e) => set({ rate: e.target.value })} placeholder="110% CDI, IPCA+6%…" /></label>
+          <label className="field"><span>Liquidez</span><select value={v.liquidity ?? ''} onChange={(e) => set({ liquidity: e.target.value })}><option value="">—</option>{LIQUIDITY.map((l) => <option key={l}>{l}</option>)}</select></label>
+        </div>
+        <div className="grid2">
+          <label className="field"><span>Data da aplicação</span><input type="date" value={v.applied_at ?? ''} onChange={(e) => set({ applied_at: e.target.value })} /></label>
           <label className="field"><span>Vencimento</span><input type="date" value={v.maturity ?? ''} onChange={(e) => set({ maturity: e.target.value })} /></label>
         </div>
+        <label className="field"><span>Observações</span><textarea value={v.notes ?? ''} onChange={(e) => set({ notes: e.target.value })} placeholder="Ex.: reserva da faculdade, resgatar só em 2030" /></label>
         {err && <p className="error">{err}</p>}
         <button className="btn primary" onClick={save}>Salvar</button>
         {v.id && <button className="btn danger" onClick={remove}><Icon name="trash" size={16} /> Apagar</button>}

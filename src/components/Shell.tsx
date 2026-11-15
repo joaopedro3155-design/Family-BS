@@ -15,6 +15,16 @@ const TABS: { href: string; label: string; icon: IconName }[] = [
   { href: '/noticias', label: 'Notícias', icon: 'news' },
 ];
 
+// No celular cabem 4 abas + "Mais"; o resto fica no menu Mais.
+const MOBILE_TABS = TABS.slice(0, 4);
+const MORE: { href: string; label: string; icon: IconName }[] = [
+  { href: '/investir', label: 'Investir', icon: 'trend' },
+  { href: '/noticias', label: 'Notícias', icon: 'news' },
+  { href: '/financas/recorrentes', label: 'Contas recorrentes', icon: 'repeat' },
+  { href: '/lancar', label: 'Lançar gasto', icon: 'plus' },
+  { href: '/ajustes', label: 'Ajustes', icon: 'gear' },
+];
+
 function isActive(path: string, href: string) {
   return href === '/' ? path === '/' : path.startsWith(href);
 }
@@ -35,6 +45,8 @@ export function AppGate({ children }: { children: React.ReactNode }) {
 function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { householdName } = useApp();
+  const [more, setMore] = useState(false);
+  const moreOn = MORE.some((m) => path.startsWith(m.href));
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -56,13 +68,32 @@ function Shell({ children }: { children: React.ReactNode }) {
         <Link href="/lancar" className="fab" aria-label="Lançar gasto"><Icon name="plus" size={26} /></Link>
       )}
       <nav className="tabbar" aria-label="Abas">
-        {TABS.map((t) => (
-          <Link key={t.href} href={t.href} className={isActive(path, t.href) ? 'tab on' : 'tab'}>
+        {MOBILE_TABS.map((t) => (
+          <Link key={t.href} href={t.href} className={isActive(path, t.href) && !(t.href === '/financas' && path.startsWith('/financas/recorrentes')) ? 'tab on' : 'tab'}>
             <Icon name={t.icon} size={22} />
             <span>{t.label}</span>
           </Link>
         ))}
+        <button type="button" className={moreOn ? 'tab on' : 'tab'} onClick={() => setMore(true)} aria-label="Mais opções">
+          <Icon name="more" size={22} />
+          <span>Mais</span>
+        </button>
       </nav>
+      {more && (
+        <div className="sheet-backdrop" onClick={() => setMore(false)}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="Mais" onClick={(e) => e.stopPropagation()}>
+            <div className="row between"><h2>Mais</h2><button className="link-btn" onClick={() => setMore(false)}>Fechar</button></div>
+            <div className="list">
+              {MORE.map((m) => (
+                <Link key={m.href} href={m.href} className="list-item" style={{ color: 'inherit', textDecoration: 'none' }} onClick={() => setMore(false)}>
+                  <Icon name={m.icon} /> <span className="grow strong">{m.label}</span>
+                </Link>
+              ))}
+            </div>
+            <span className="small muted">{householdName}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
