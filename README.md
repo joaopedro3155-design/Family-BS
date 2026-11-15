@@ -3,7 +3,7 @@
 App instalável (PWA) da família: agenda com lembretes, finanças da família (PF) e da CBS Engenharia (PJ), contas recorrentes, limites de gasto e importação da planilha. Funciona no iPhone (pela Tela de Início) e no computador (pelo navegador).
 
 **O que já funciona nesta fase**
-- Entrar com e-mail e código de 6 dígitos (sem senha). Um e-mail basta; a Kamila pode ter o próprio acesso por convite.
+- Entrar com e-mail e senha (ou sem senha, por e-mail). Um e-mail basta; a Kamila pode ter o próprio acesso por convite.
 - Agenda da família com lembretes no celular (1 dia, 1 hora, 30 ou 10 min antes).
 - Finanças: Família (PF) e empresa (PJ), filtro "quem gastou", limites mensais com alerta em 80% e 100%, possíveis vazamentos, gastos por grupo, transferência do lucro da PJ para a família sem contar duas vezes.
 - Contas recorrentes (aluguel, carro, plano de saúde, contador, anuais como IPVA e CREA), com aviso antes do vencimento e botão "Lançar".
