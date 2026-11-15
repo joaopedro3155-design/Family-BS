@@ -1,0 +1,113 @@
+export type Kind = 'PF' | 'PJ';
+export type Tipo = 'receita' | 'despesa';
+
+export interface Member {
+  household_id: string;
+  user_id: string;
+  display_name: string;
+  color: string;
+  role: 'admin' | 'membro';
+}
+
+export interface Account {
+  id: string;
+  household_id: string;
+  name: string;
+  kind: Kind;
+}
+
+export interface Category {
+  id: string;
+  household_id: string;
+  account_id: string;
+  grupo: string;
+  name: string;
+  tipo: Tipo;
+  monthly_limit: number | null;
+  archived: boolean;
+}
+
+export interface Transaction {
+  id: string;
+  household_id: string;
+  account_id: string;
+  category_id: string | null;
+  tipo: Tipo;
+  amount: number;
+  occurred_on: string;
+  description: string | null;
+  payment_method: string | null;
+  installments: number;
+  installment_no: number;
+  installment_group: string | null;
+  spent_by: string | null;
+  recurring_id: string | null;
+  source: string;
+  is_profit_transfer: boolean;
+}
+
+export interface RecurringBill {
+  id: string;
+  household_id: string;
+  account_id: string;
+  category_id: string | null;
+  name: string;
+  tipo: Tipo;
+  amount: number | null;
+  variable: boolean;
+  frequency: 'mensal' | 'anual';
+  due_day: number | null;
+  due_month: number | null;
+  remind_days_before: number;
+  active: boolean;
+}
+
+export interface EventItem {
+  id: string;
+  household_id: string;
+  title: string;
+  notes: string | null;
+  location: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  owner_user: string | null;
+  category: 'cliente' | 'escritorio' | 'casa' | 'pessoal' | 'familia';
+  reminders: number[];
+}
+
+export const PAYMENT_METHODS: { id: string; label: string }[] = [
+  { id: 'credito', label: 'Crédito' },
+  { id: 'debito', label: 'Débito' },
+  { id: 'pix', label: 'Pix' },
+  { id: 'dinheiro', label: 'Dinheiro' },
+  { id: 'boleto', label: 'Boleto' },
+  { id: 'transferencia', label: 'Transferência' },
+];
+
+export const EVENT_CATEGORIES: { id: EventItem['category']; label: string }[] = [
+  { id: 'cliente', label: 'Cliente' },
+  { id: 'escritorio', label: 'Escritório' },
+  { id: 'familia', label: 'Família' },
+  { id: 'casa', label: 'Casa' },
+  { id: 'pessoal', label: 'Pessoal' },
+];
+
+export const NEWS_LABELS: { id: string; label: string }[] = [
+  { id: 'principais', label: 'Principais' },
+  { id: 'financas', label: 'Finanças' },
+  { id: 'descontos', label: 'Descontos' },
+  { id: 'engenharia', label: 'Engenharia' },
+  { id: 'direito', label: 'Direito' },
+  { id: 'politica', label: 'Política' },
+  { id: 'esportes', label: 'Esportes' },
+];
+
+export const ASSET_CLASSES: { id: string; label: string; color: string }[] = [
+  { id: 'reserva', label: 'Reserva', color: '#94A3B8' },
+  { id: 'renda_fixa', label: 'Renda fixa', color: '#0F766E' },
+  { id: 'fii', label: 'Fundos imobiliários', color: '#1D4ED8' },
+  { id: 'acoes', label: 'Ações', color: '#C2410C' },
+  { id: 'previdencia', label: 'Previdência', color: '#7C3AED' },
+  { id: 'cripto', label: 'Cripto', color: '#A16207' },
+  { id: 'outros', label: 'Outros', color: '#475569' },
+];

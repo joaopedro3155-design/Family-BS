@@ -1,0 +1,155 @@
+// Testes rápidos da lógica (npm test). Não precisa de internet nem do Supabase.
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { addMonthsToDate, parseMoney, splitInstallments, money } from '../src/lib/format';
+import { parseMessage } from '../src/lib/parse-message';
+import { dueEventReminders } from '../src/lib/reminders';
+import { nextDue, daysBetween } from '../src/lib/recurring';
+import { parseCsv, recurringPlan, categoryName } from './import-lib';
+import type { Category } from '../src/lib/types';
+import { normalizeName, matchStockItem, estimateDailyUsage, daysLeft, needsBuying, whatsappText } from '../src/lib/stock';
+import { parseNfceQr, parseNfceHtml } from '../src/lib/nfce';
+import { extractJson, filterSourced } from '../src/lib/ai-utils';
+import { buildIcs } from '../src/lib/ics';
+
+let n = 0;
+const t = (name: string, fn: () => void) => { fn(); n++; console.log('ok -', name); };
+
+t('valores em reais', () => {
+  assert.equal(parseMoney('87,50'), 87.5);
+  assert.equal(parseMoney('1.234,56'), 1234.56);
+  assert.equal(parseMoney('R$ 2.500'), 2500);
+  assert.equal(money(10, false), 'R$ •••••');
+});
+
+t('parcelas somam o total', () => {
+  const p = splitInstallments(100, 3);
+  assert.deepEqual(p, [33.34, 33.33, 33.33]);
+  assert.deepEqual(splitInstallments(87.5, 3), [29.17, 29.17, 29.16]);
+  assert.equal(addMonthsToDate('2026-01-31', 1), '2026-02-28');
+  assert.equal(addMonthsToDate('2026-11-15', 2), '2027-01-15');
+});
+
+t('mensagem rápida', () => {
+  const cats = [
+    { id: 'm', name: 'Supermercado', tipo: 'despesa', archived: false },
+    { id: 'r', name: 'Restaurantes', tipo: 'despesa', archived: false },
+  ] as Category[];
+  const p = parseMessage('gastei 87,50 no mercado no crédito em 3x', cats);
+  assert.equal(p.amount, 87.5);
+  assert.equal(p.payment_method, 'credito');
+  assert.equal(p.installments, 3);
+  assert.equal(p.category_id, 'm');
+  const q = parseMessage('almoço 45 no pix', cats);
+  assert.equal(q.amount, 45);
+  assert.equal(q.payment_method, 'pix');
+  assert.equal(q.category_id, 'r');
+});
+
+t('lembretes de compromisso', () => {
+  const now = new Date('2026-11-16T10:00:00-03:00');
+  const ev = [
+    { id: 'a', starts_at: '2026-11-16T10:50:00-03:00', reminders: [1440, 60] }, // 1 h antes já venceu
+    { id: 'b', starts_at: '2026-11-17T09:00:00-03:00', reminders: [1440, 60] }, // 1 dia antes já venceu
+    { id: 'c', starts_at: '2026-11-18T09:00:00-03:00', reminders: [1440] },     // ainda não
+  ];
+  assert.deepEqual(dueEventReminders(ev, new Set(), now), [{ eventId: 'a', minutes: 60 }, { eventId: 'b', minutes: 1440 }]);
+  assert.deepEqual(dueEventReminders(ev, new Set(['a:60', 'b:1440']), now), []);
+});
+
+t('vencimento de contas', () => {
+  assert.equal(nextDue({ due_day: 10, due_month: null, frequency: 'mensal' }, '2026-11-14'), '2026-12-10');
+  assert.equal(nextDue({ due_day: 20, due_month: null, frequency: 'mensal' }, '2026-11-14'), '2026-11-20');
+  assert.equal(nextDue({ due_day: 31, due_month: null, frequency: 'mensal' }, '2026-02-10'), '2026-02-28');
+  assert.equal(nextDue({ due_day: 15, due_month: 1, frequency: 'anual' }, '2026-11-14'), '2027-01-15');
+  assert.equal(daysBetween('2026-11-14', '2026-11-20'), 6);
+});
+
+
+t('estoque: nomes e correspondência com a nota', () => {
+  assert.equal(normalizeName('CAFÉ PILÃO 500G Tradicional'), 'cafe pilao tradicional');
+  const items = [{ id: 'cafe', name: 'Café', aliases: [] }, { id: 'papel', name: 'Papel higiênico', aliases: [] }, { id: 'leite', name: 'Leite', aliases: ['LT ITALAC INT 1L'] }];
+  assert.equal(matchStockItem('CAFE PILAO 500G', items), 'cafe');
+  assert.equal(matchStockItem('PAPEL HIG NEVE 12UN', items), 'papel');
+  assert.equal(matchStockItem('LT ITALAC INT 1L', items), 'leite');
+  assert.equal(matchStockItem('BANANA PRATA KG', items), null);
+});
+
+t('estoque: consumo e dias restantes', () => {
+  const d = (s: string) => new Date(s).toISOString();
+  // comprou 2 em 01/10 e 2 em 25/10 -> 2 pacotes em 24 dias
+  const u1 = estimateDailyUsage([{ delta: 2, kind: 'compra', occurred_at: d('2026-10-01T10:00:00Z') }, { delta: 2, kind: 'compra', occurred_at: d('2026-10-25T10:00:00Z') }])!;
+  assert.ok(Math.abs(u1 - 2 / 24) < 1e-9);
+  // ciclo "acabou": 3 rolos em 15 dias
+  const u2 = estimateDailyUsage([{ delta: 3, kind: 'compra', occurred_at: d('2026-10-01T10:00:00Z') }, { delta: -3, kind: 'acabou', occurred_at: d('2026-10-16T10:00:00Z') }])!;
+  assert.ok(Math.abs(u2 - 0.2) < 1e-9);
+  assert.equal(estimateDailyUsage([{ delta: 1, kind: 'compra', occurred_at: d('2026-10-01T10:00:00Z') }]), null);
+  const item = { quantity: 2, quantity_updated_at: d('2026-11-01T10:00:00Z'), daily_usage: 0.2, min_days: 5 };
+  const now = new Date('2026-11-06T10:00:00Z'); // 5 dias depois: sobrou 1 -> 5 dias
+  assert.ok(Math.abs(daysLeft(item, now)! - 5) < 1e-9);
+  assert.equal(needsBuying(item, now), true);
+  assert.equal(needsBuying({ ...item, quantity: 10 }, now), false);
+  assert.ok(whatsappText('Lista', [{ name: 'Café', quantity: '2' }], [{ name: 'Azeite' }]).includes('• Café (2)'));
+});
+
+t('NFC-e: QR e página da SEFAZ', () => {
+  const key = '35261112345678000190650010000123451000123456';
+  const q = parseNfceQr(`https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx?p=${key}|2|1|1|ABCDEF`)!;
+  assert.equal(q.accessKey, key);
+  assert.equal(parseNfceQr('https://google.com/?q=1'), null);
+  const html = `<div id="u20" class="txtTopo">SUPERMERCADO BOM PRECO LTDA</div><div class="text">CNPJ: 12.345.678/0001-90</div>
+  <table id="tabResult"><tr id="Item + 1"><td valign="top"><span class="txtTit2">CAFE PILAO 500G</span><span class="RCod">(Código: 789 )</span><br /><span class="Rqtd"><strong>Qtde.:</strong>2</span><span class="RUN"><strong>UN: </strong>UN</span><span class="RvlUnit"><strong>Vl. Unit.:</strong>&nbsp;16,9</span></td><td align="right" valign="top" class="txtTit noWrap">Vl. Total<br /><span class="valor">33,80</span></td></tr>
+  <tr id="Item + 2"><td><span class="txtTit2">BANANA PRATA KG</span><span class="Rqtd"><strong>Qtde.:</strong>1,235</span><span class="RUN"><strong>UN: </strong>KG</span><span class="RvlUnit"><strong>Vl. Unit.:</strong>&nbsp;6,99</span></td><td><span class="valor">8,63</span></td></tr></table>
+  <span class="totalNumb txtMax">42,43</span><label class="tx">Cartão de Crédito</label><li><strong> Emissão: </strong>14/11/2026 10:22:01</li>`;
+  const p = parseNfceHtml(html);
+  assert.equal(p.store, 'SUPERMERCADO BOM PRECO LTDA');
+  assert.equal(p.cnpj, '12.345.678/0001-90');
+  assert.equal(p.items.length, 2);
+  assert.deepEqual(p.items[0], { name: 'CAFE PILAO 500G', qty: 2, unit: 'UN', unitPrice: 16.9, total: 33.8 });
+  assert.equal(p.items[1].qty, 1.235);
+  assert.equal(p.total, 42.43);
+  assert.equal(p.paymentMethod, 'credito');
+  assert.equal(p.issuedOn, '2026-11-14');
+});
+
+t('respostas do Claude: JSON e fontes', () => {
+  assert.deepEqual(extractJson<{ a: number }>('Claro! ```json\n{"a": 1}\n``` pronto'), { a: 1 });
+  assert.deepEqual(extractJson<{ s: string }>('texto {"s": "chave } dentro"} fim'), { s: 'chave } dentro' });
+  const items = [
+    { titulo: 'A', resumo: '', fontes: [{ titulo: 'g1', url: 'https://g1.globo.com/economia/x' }] },
+    { titulo: 'B', resumo: '', fontes: [{ titulo: 'inventada', url: 'https://site-inventado.com/y' }] },
+  ];
+  const kept = filterSourced(items, new Set(['https://g1.globo.com/economia/x?utm=1']));
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].titulo, 'A');
+});
+
+t('agenda iCal', () => {
+  const ics = buildIcs('Família BS', [{ id: 'e1', title: 'Reunião, cliente', starts_at: '2026-11-16T11:30:00.000Z', ends_at: null, location: null, notes: null, reminders: [60], who: 'João' }], new Date('2026-11-14T00:00:00Z'));
+  assert.ok(ics.includes('DTSTART:20261116T113000Z'));
+  assert.ok(ics.includes('DTEND:20261116T123000Z'));
+  assert.ok(ics.includes('SUMMARY:Reunião\\, cliente (João)'));
+  assert.ok(ics.includes('TRIGGER:-PT60M'));
+  assert.ok(ics.endsWith('END:VCALENDAR\r\n'));
+});
+
+const csv = 'dados/historico_family_bs_2025_2026.csv';
+if (existsSync(csv)) {
+  t('importação da planilha', () => {
+    const rows = parseCsv(readFileSync(csv, 'utf8'));
+    assert.equal(rows.length, 897);
+    const pfSet = rows.filter((r) => r.mes === '2026-09' && r.conta.startsWith('Fam') && r.tipo === 'despesa').reduce((s, r) => s + r.valor, 0);
+    assert.equal(Math.round(pfSet * 100) / 100, 26994.54);
+    const lucro = rows.find((r) => r.tipo === 'receita' && r.item.startsWith('Lucro'))!;
+    assert.equal(categoryName(lucro, 'CBS Engenharia'), 'Lucro CBS Engenharia');
+    const plan = recurringPlan(rows, 'CBS Engenharia');
+    const aluguel = plan.find((p) => p.name === 'Aluguel')!;
+    assert.equal(aluguel.amount, 2500);
+    assert.equal(aluguel.active, true);
+    assert.equal(plan.find((p) => p.name === 'Cursos Inglês')!.active, false);
+    assert.equal(plan.find((p) => p.name === 'Luz')!.variable, true);
+    console.log(`   ${plan.length} recorrentes (${plan.filter((p) => p.active).length} ativas)`);
+  });
+}
+
+console.log(`\n${n} grupos de teste passaram.`);

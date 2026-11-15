@@ -6,19 +6,29 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "importar": "tsx scripts/importar-planilha.ts",
+    "test": "tsx scripts/self-test.ts",
+    "chaves": "node scripts/gerar-chaves.mjs",
+    "telegram": "node scripts/telegram-webhook.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "jsqr": "^1.4.0",
     "next": "16.4.6",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
