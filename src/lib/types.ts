@@ -71,7 +71,8 @@ export interface EventItem {
   starts_at: string;
   ends_at: string | null;
   owner_user: string | null;
-  category: 'cliente' | 'escritorio' | 'casa' | 'pessoal' | 'familia';
+  company: boolean;
+  category: 'cliente' | 'escritorio' | 'casa' | 'pessoal' | 'familia' | 'entrega';
   reminders: number[];
 }
 
@@ -85,6 +86,7 @@ export const PAYMENT_METHODS: { id: string; label: string }[] = [
 ];
 
 export const EVENT_CATEGORIES: { id: EventItem['category']; label: string }[] = [
+  { id: 'entrega', label: 'Entrega de projeto' },
   { id: 'cliente', label: 'Cliente' },
   { id: 'escritorio', label: 'Escritório' },
   { id: 'familia', label: 'Família' },

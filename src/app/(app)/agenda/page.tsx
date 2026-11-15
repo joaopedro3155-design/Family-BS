@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { Chips, Empty, PageHeader, LocationLink } from '@/components/ui';
+import { Chips, Empty, PageHeader, LocationLink, Segmented } from '@/components/ui';
 import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { dayLabel, timeLabel, todayISO } from '@/lib/format';
@@ -23,9 +23,18 @@ function addDays(iso: string, n: number) {
 function localDay(ts: string) {
   return todayISO(new Date(ts));
 }
+const CBS = 'cbs';
+const CBS_COLOR = '#9C6644';
+function daysUntil(iso: string) {
+  const n = Math.round((new Date(`${iso}T12:00:00`).getTime() - new Date(`${todayISO()}T12:00:00`).getTime()) / 86400000);
+  return n === 0 ? 'hoje' : n === 1 ? 'amanhã' : n < 0 ? `há ${-n} dias` : `em ${n} dias`;
+}
 
 export default function Agenda() {
-  const { householdId, members, memberName } = useApp();
+  const { householdId, members, memberName, accounts, me } = useApp();
+  const cbsName = accounts.find((a) => a.kind === 'PJ')?.name ?? 'Empresa';
+  const [mode, setMode] = useState<'semana' | 'lista'>('semana');
+  const [upcoming, setUpcoming] = useState<EventItem[]>([]);
   const [selected, setSelected] = useState(todayISO());
   const [weekStart, setWeekStart] = useState(() => {
     const t = todayISO();
@@ -51,20 +60,61 @@ export default function Agenda() {
     return () => { alive = false; };
   }, [householdId, days, rev]);
 
-  const visible = events.filter((e) => who === 'all' || e.owner_user === who || e.owner_user === null);
+  // lista das próximas datas da empresa (a partir de hoje, sem depender da semana)
+  useEffect(() => {
+    if (!householdId || who !== CBS || mode !== 'lista') return;
+    let alive = true;
+    const start = new Date(`${todayISO()}T00:00:00`).toISOString();
+    supabase().from('events').select('*').eq('household_id', householdId).eq('company', true).gte('starts_at', start).order('starts_at').limit(200)
+      .then(({ data }) => { if (alive) setUpcoming((data as EventItem[]) ?? []); });
+    return () => { alive = false; };
+  }, [householdId, who, mode, rev]);
+
+  const visible = events.filter((e) => who === 'all' || (who === CBS ? e.company : !e.company && (e.owner_user === who || e.owner_user === null)));
   const ofDay = visible.filter((e) => localDay(e.starts_at) === selected);
-  const color = (uid: string | null) => (uid ? members.find((m) => m.user_id === uid)?.color ?? '#E8590C' : '#E8590C');
+  const color = (e: Pick<EventItem, 'owner_user' | 'company'>) => (e.company ? CBS_COLOR : e.owner_user ? members.find((m) => m.user_id === e.owner_user)?.color ?? '#E8590C' : '#E8590C');
+  const ownerLabel = (e: EventItem) => (e.company ? cbsName : memberName(e.owner_user));
+  const showList = who === CBS && mode === 'lista';
+  const openEvent = (e: EventItem) => setEditing({ ...e, starts_at: toLocalInput(e.starts_at), ends_at: e.ends_at ? toLocalInput(e.ends_at) : null });
+  const card = (e: EventItem, timeText: string) => (
+    <div key={e.id} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => openEvent(e)}>
+      <span className="time">{timeText}</span>
+      <span className="body" style={{ background: `${color(e)}1A` }}>
+        <span className="strong" style={{ color: color(e) }}>{e.title}</span>
+        <span className="small">{ownerLabel(e)} · {EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}</span>
+        {e.location && <LocationLink location={e.location} />}
+      </span>
+    </div>
+  );
+  const byDate = useMemo(() => {
+    const m = new Map<string, EventItem[]>();
+    for (const e of upcoming) { const d = localDay(e.starts_at); m.set(d, [...(m.get(d) ?? []), e]); }
+    return Array.from(m.entries());
+  }, [upcoming]);
 
   return (
     <>
       <PageHeader title="Agenda">
-        <button className="btn primary small" onClick={() => setEditing({ starts_at: `${selected}T09:00`, reminders: [1440, 60], category: 'pessoal', owner_user: null })}>
+        <button className="btn primary small" onClick={() => setEditing(who === CBS ? { starts_at: `${showList ? todayISO() : selected}T09:00`, reminders: [1440, 60], category: 'entrega', owner_user: me?.user_id ?? null, company: true } : { starts_at: `${selected}T09:00`, reminders: [1440, 60], category: 'pessoal', owner_user: null, company: false })}>
           <Icon name="plus" size={16} /> Compromisso
         </button>
       </PageHeader>
 
-      <Chips value={who} onChange={setWho} options={[{ id: 'all', label: 'Todos' }, ...members.map((m) => ({ id: m.user_id, label: m.display_name.split(' ')[0] }))]} />
+      <Chips value={who} onChange={setWho} options={[{ id: 'all', label: 'Todos' }, ...members.map((m) => ({ id: m.user_id, label: m.display_name.split(' ')[0] })), { id: CBS, label: cbsName }]} />
 
+      {who === CBS && <Segmented value={mode} onChange={setMode} options={[{ id: 'semana', label: 'Semana' }, { id: 'lista', label: 'Próximas datas' }]} />}
+
+      {showList ? (
+        <div className="stack" style={{ gap: 14 }}>
+          {byDate.length === 0 && <Empty>Nenhuma entrega ou compromisso da {cbsName} pela frente.</Empty>}
+          {byDate.map(([d, list]) => (
+            <div key={d} className="stack" style={{ gap: 8 }}>
+              <div className="row between"><span className="small strong muted">{dayLabel(d).toUpperCase()}</span><span className="pill">{daysUntil(d)}</span></div>
+              {list.map((e) => card(e, timeLabel(e.starts_at)))}
+            </div>
+          ))}
+        </div>
+      ) : (<>
       <div className="card stack" style={{ padding: '12px 8px' }}>
         <div className="row between" style={{ padding: '0 8px' }}>
           <button className="link-btn" onClick={() => setWeekStart(addDays(weekStart, -7))}>‹ Semana anterior</button>
@@ -74,12 +124,12 @@ export default function Agenda() {
         <div className="week">
           {days.map((d) => {
             const dayEvents = visible.filter((e) => localDay(e.starts_at) === d);
-            const owners = Array.from(new Set(dayEvents.map((e) => e.owner_user ?? 'both'))).slice(0, 3);
+            const owners = Array.from(new Set(dayEvents.map((e) => color(e)))).slice(0, 3);
             return (
               <button key={d} className={d === selected ? 'day on' : 'day'} onClick={() => setSelected(d)} aria-pressed={d === selected}>
                 <span className="wd">{WD[new Date(`${d}T12:00:00`).getDay()]}</span>
                 <span className="n">{Number(d.slice(8))}</span>
-                <span className="dots">{owners.map((o) => <span key={o} style={{ background: o === 'both' ? '#E8590C' : color(o) }} />)}</span>
+                <span className="dots">{owners.map((o) => <span key={o} style={{ background: o }} />)}</span>
               </button>
             );
           })}
@@ -89,17 +139,9 @@ export default function Agenda() {
       <span className="small strong muted">{dayLabel(selected).toUpperCase()}</span>
       <div className="stack" style={{ gap: 8 }}>
         {ofDay.length === 0 && <Empty>Nenhum compromisso neste dia.</Empty>}
-        {ofDay.map((e) => (
-          <div key={e.id} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setEditing({ ...e, starts_at: toLocalInput(e.starts_at), ends_at: e.ends_at ? toLocalInput(e.ends_at) : null })}>
-            <span className="time">{timeLabel(e.starts_at)}</span>
-            <span className="body" style={{ background: `${color(e.owner_user)}1A` }}>
-              <span className="strong" style={{ color: color(e.owner_user) }}>{e.title}</span>
-              <span className="small">{memberName(e.owner_user)} · {EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}</span>
-              {e.location && <LocationLink location={e.location} />}
-            </span>
-          </div>
-        ))}
+        {ofDay.map((e) => card(e, timeLabel(e.starts_at)))}
       </div>
+      </>)}
 
       {editing && <EventSheet value={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
     </>
@@ -113,7 +155,8 @@ function toLocalInput(ts: string) {
 }
 
 function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; onClose: () => void; onSaved: () => void }) {
-  const { householdId, members } = useApp();
+  const { householdId, members, accounts, me } = useApp();
+  const cbsName = accounts.find((a) => a.kind === 'PJ')?.name ?? 'Empresa';
   const [v, setV] = useState<Partial<EventItem>>(value);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -130,6 +173,7 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
       starts_at: new Date(v.starts_at).toISOString(),
       ends_at: v.ends_at ? new Date(v.ends_at).toISOString() : null,
       owner_user: v.owner_user ?? null,
+      company: v.company ?? false,
       category: v.category ?? 'pessoal',
       reminders: v.reminders ?? [],
     };
@@ -157,16 +201,21 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label="Compromisso" onClick={(e) => e.stopPropagation()}>
         <div className="row between"><h2>{v.id ? 'Editar compromisso' : 'Novo compromisso'}</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
-        <label className="field"><span>Título</span><input value={v.title ?? ''} onChange={(e) => set({ title: e.target.value })} placeholder="Reunião com cliente" /></label>
+        <label className="field"><span>Título</span><input value={v.title ?? ''} onChange={(e) => set({ title: e.target.value })} placeholder={v.company ? 'Entrega do projeto estrutural – Cliente X' : 'Reunião com cliente'} /></label>
         <div className="grid2">
           <label className="field"><span>Início</span><input type="datetime-local" value={v.starts_at ?? ''} onChange={(e) => set({ starts_at: e.target.value })} /></label>
           <label className="field"><span>Fim (opcional)</span><input type="datetime-local" value={v.ends_at ?? ''} onChange={(e) => set({ ends_at: e.target.value })} /></label>
         </div>
         <div className="grid2">
           <label className="field"><span>De quem</span>
-            <select value={v.owner_user ?? ''} onChange={(e) => set({ owner_user: e.target.value || null })}>
+            <select value={v.company ? CBS : v.owner_user ?? ''} onChange={(e) => {
+              const x = e.target.value;
+              if (x === CBS) set({ company: true, owner_user: me?.user_id ?? null, category: v.category === 'pessoal' ? 'entrega' : v.category });
+              else set({ company: false, owner_user: x || null });
+            }}>
               <option value="">Os dois</option>
               {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}
+              <option value={CBS}>{cbsName}</option>
             </select>
           </label>
           <label className="field"><span>Tipo</span>

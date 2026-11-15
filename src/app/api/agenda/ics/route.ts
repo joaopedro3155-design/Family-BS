@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   ]);
   const name = (id: string | null) => (id ? members?.find((m) => m.user_id === id)?.display_name.split(' ')[0] ?? '' : '');
   const ics = buildIcs(`${h.name} · Family BS`, (events ?? []).map((e) => ({
-    id: e.id, title: e.title, starts_at: e.starts_at, ends_at: e.ends_at, location: e.location, notes: e.notes, reminders: e.reminders ?? [], who: name(e.owner_user),
+    id: e.id, title: e.title, starts_at: e.starts_at, ends_at: e.ends_at, location: e.location, notes: e.notes, reminders: e.reminders ?? [], who: e.company ? 'CBS Engenharia' : name(e.owner_user),
   })));
   return new Response(ics, { headers: { 'content-type': 'text/calendar; charset=utf-8', 'cache-control': 'no-store' } });
 }

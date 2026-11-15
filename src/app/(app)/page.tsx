@@ -81,7 +81,7 @@ export default function Hoje() {
               <div key={e.id} className="list-item">
                 <span className="strong small" style={{ width: 44 }}>{timeLabel(e.starts_at)}</span>
                 <div className="grow"><span className="strong">{e.title}</span>{e.location && <LocationLink location={e.location} />}</div>
-                <span className={e.owner_user ? (members[0]?.user_id === e.owner_user ? 'pill blue' : 'pill orange') : 'pill'}>{memberName(e.owner_user)}</span>
+                <span className={e.company ? 'pill gray' : e.owner_user ? (members[0]?.user_id === e.owner_user ? 'pill blue' : 'pill orange') : 'pill'}>{e.company ? accounts.find((a) => a.kind === 'PJ')?.name ?? 'Empresa' : memberName(e.owner_user)}</span>
               </div>
             ))}
           </div>
