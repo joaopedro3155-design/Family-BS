@@ -3,12 +3,15 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import { PageHeader, Segmented } from '@/components/ui';
+import { Icon } from '@/components/Icons';
 import { api, useStatus } from '@/lib/api';
 import { compressImage, decodeQr, qrToUrl, scanRegion } from '@/lib/image';
 import { supabase } from '@/lib/supabase';
 import { money, parseMoney, todayISO } from '@/lib/format';
 import { matchStockItem, STOCK_CATEGORIES, type ReadReceiptResponse, type StockItem } from '@/lib/stock';
 import { saveReceipt, type StockPick } from '@/lib/stock-db';
+import { BUCKETS, detectStore, parseReceiptText, splitByBucket } from '@/lib/receipt-text';
+import { ocrImage } from '@/lib/ocr';
 import { PAYMENT_METHODS, type Kind } from '@/lib/types';
 
 type PickChoice = string; // id do item | 'new' | 'skip'
@@ -30,10 +33,17 @@ export default function Nota() {
         setBusy('Buscando a nota na SEFAZ…');
         setData(await api<ReadReceiptResponse>('/api/notas/ler', { qr }));
       } else {
-        if (status && !status.claude) throw new Error('Não achei o QR code na foto. Tente pela câmera ao vivo (botão “Ler QR code com a câmera”), com o QR bem iluminado e ocupando o quadrado.');
-        setBusy('O Claude está lendo o comprovante…');
-        const img = await compressImage(f);
-        setData(await api<ReadReceiptResponse>('/api/notas/ler', { image: img.base64, mediaType: img.mediaType }));
+        if (status?.claude) {
+          setBusy('O Claude está lendo o comprovante…');
+          const img = await compressImage(f);
+          setData(await api<ReadReceiptResponse>('/api/notas/ler', { image: img.base64, mediaType: img.mediaType }));
+        } else {
+          // sem QR: lê o texto do cupom no próprio celular (grátis)
+          const text = await ocrImage(f, setBusy);
+          const parsed = parseReceiptText(text);
+          if (!parsed.total && !parsed.items.length) throw new Error('Não consegui ler o cupom. Tire a foto de perto, reta e com boa luz, mostrando o TOTAL.');
+          setData(parsed);
+        }
       }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     setBusy(null);
@@ -56,8 +66,8 @@ export default function Nota() {
         <p>Aponte a câmera para o <strong>QR code do cupom fiscal</strong>: ele traz todos os itens e preços.</p>
         <button className="btn primary" disabled={!!busy} onClick={() => setScanning(true)}>{busy ?? 'Ler QR code com a câmera'}</button>
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); e.target.value = ''; }} />
-        <button className="btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>Usar foto da galeria</button>
-        {status && !status.claude && <p className="small muted">Sem o Claude configurado, só o QR code da NFC-e funciona.</p>}
+        <button className="btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>Foto do cupom (posto, mercado, padaria…)</button>
+        <p className="small muted">Sem QR code, o app lê o texto da foto, descobre se é posto, mercado, padaria ou açougue e separa os itens nas categorias.</p>
       </div>
       <div className="card stack">
         <label className="field"><span>Ou cole o link do QR code</span><input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://www.nfce.fazenda.sp.gov.br/…" /></label>
@@ -142,8 +152,26 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
   const [spentBy, setSpentBy] = useState(me?.user_id ?? '');
   const account = accounts.find((a) => a.kind === kind);
   const cats = categories.filter((c) => c.account_id === account?.id && c.tipo === 'despesa' && !c.archived);
-  const suggested = cats.find((c) => c.name === data.suggestedCategory) ?? cats.find((c) => /supermercado/i.test(c.name));
-  const [categoryId, setCategoryId] = useState(suggested?.id ?? '');
+  const storeKind = data.storeKind ?? detectStore(`${data.store ?? ''}\n${data.items.map((i) => i.name).join('\n')}`);
+  const [splits, setSplits] = useState<{ categoryId: string; amount: string; hint: string }[]>([]);
+  const [splitFor, setSplitFor] = useState<string | null>(null);
+  // sugere a divisão por categoria (pão → padaria, carne → açougue, combustível…)
+  if (account && splitFor !== account.id) {
+    const fallback = cats.find((c) => c.name === data.suggestedCategory) ?? cats.find((c) => /supermercado/i.test(c.name));
+    const merged = new Map<string, { amount: number; hint: string[] }>();
+    for (const sp of splitByBucket(data.items, data.total, storeKind)) {
+      const cat = kind === 'PF' ? cats.find((c) => BUCKETS[sp.bucket].cat.test(c.name)) ?? fallback : fallback;
+      const id = cat?.id ?? '';
+      const e = merged.get(id) ?? { amount: 0, hint: [] };
+      e.amount += sp.amount;
+      e.hint.push(...sp.items.slice(0, 3));
+      merged.set(id, e);
+    }
+    setSplitFor(account.id);
+    setSplits(merged.size ? [...merged.entries()].map(([id, e]) => ({ categoryId: id, amount: e.amount.toFixed(2).replace('.', ','), hint: e.hint.slice(0, 3).join(', ') })) : [{ categoryId: fallback?.id ?? '', amount: total, hint: '' }]);
+  }
+  const splitSum = splits.reduce((s, x) => s + (parseMoney(x.amount) || 0), 0);
+  const setSplit = (i: number, patch: Partial<{ categoryId: string; amount: string }>) => setSplits((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const [choices, setChoices] = useState<PickChoice[]>(() => data.items.map(() => 'skip'));
   const [qtys, setQtys] = useState<number[]>(() => data.items.map((i) => i.qty || 1));
   const [newCat, setNewCat] = useState<StockItem['category'][]>(() => data.items.map(() => 'alimentos'));
@@ -166,6 +194,11 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
   async function save() {
     const t = parseMoney(total);
     if (!t || Number.isNaN(t)) { setErr('Confira o valor total.'); return; }
+    const parts = splits.length > 1
+      ? splits.map((x) => ({ categoryId: x.categoryId || null, amount: parseMoney(x.amount) })).filter((x) => x.amount > 0)
+      : [{ categoryId: splits[0]?.categoryId || null, amount: t }];
+    if (parts.some((x) => Number.isNaN(x.amount))) { setErr('Confira os valores da divisão.'); return; }
+    if (splits.length > 1 && Math.abs(parts.reduce((s, x) => s + x.amount, 0) - t) > 0.05) { setErr('A soma da divisão precisa bater com o total.'); return; }
     if (!account || !householdId) return;
     setBusy(true); setErr(null);
     const picks: StockPick[] = data.items.map((ri, idx) => {
@@ -178,7 +211,7 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
     try {
       const sb = supabase();
       const r = await saveReceipt(sb, {
-        householdId, accountId: account.id, categoryId: categoryId || null, source: data.source, accessKey: data.accessKey,
+        householdId, accountId: account.id, categoryId: parts[0].categoryId, splits: parts, source: data.source, accessKey: data.accessKey,
         store: data.store, cnpj: data.cnpj, issuedOn: date, total: t, paymentMethod: method, spentBy: kind === 'PF' ? spentBy || null : null,
         items: data.items, picks,
       });
@@ -204,21 +237,34 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
       <PageHeader title="Conferir nota" back="/lancar" />
       <div className="card dark stack">
         <span className="strong">{data.store ?? 'Loja não identificada'}</span>
-        <span className="small muted">{data.source === 'nfce' ? 'NFC-e (SEFAZ)' : 'Lido pelo Claude'} · {data.items.length} itens</span>
+        <span className="small muted">{data.source === 'nfce' ? 'NFC-e (SEFAZ)' : 'Lido da foto'}{storeKind ? ` · ${({ posto: 'Posto', padaria: 'Padaria', acougue: 'Açougue', mercado: 'Mercado', farmacia: 'Farmácia', pet: 'Pet shop', restaurante: 'Restaurante' } as const)[storeKind]}` : ''} · {data.items.length} itens</span>
       </div>
       <div className="card stack">
-        <Segmented value={kind} onChange={(k) => { setKind(k); setCategoryId(''); }} options={[{ id: 'PF', label: 'Família (PF)' }, { id: 'PJ', label: 'Empresa (PJ)' }]} />
+        <Segmented value={kind} onChange={(k) => { setKind(k); setSplitFor(null); }} options={[{ id: 'PF', label: 'Família (PF)' }, { id: 'PJ', label: 'Empresa (PJ)' }]} />
         <div className="grid2">
           <label className="field"><span>Total</span><input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} /></label>
           <label className="field"><span>Data</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         </div>
         <div className="grid2">
           <label className="field"><span>Pagamento</span><select value={method} onChange={(e) => setMethod(e.target.value)}>{PAYMENT_METHODS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
-          <label className="field"><span>Categoria</span><select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}><option value="">—</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          {kind === 'PF' ? (
+            <label className="field"><span>Quem</span><select value={spentBy} onChange={(e) => setSpentBy(e.target.value)}><option value="">Os dois</option>{members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}</select></label>
+          ) : <span />}
         </div>
-        {kind === 'PF' && (
-          <label className="field"><span>Quem</span><select value={spentBy} onChange={(e) => setSpentBy(e.target.value)}><option value="">Os dois</option>{members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}</select></label>
-        )}
+      </div>
+      <div className="card stack">
+        <div className="row between"><span className="strong">Categorias</span>{splits.length > 1 && <span className={Math.abs(splitSum - (parseMoney(total) || 0)) > 0.05 ? 'small orange strong' : 'small muted'}>soma {money(splitSum, true)}</span>}</div>
+        {splits.map((x, i) => (
+          <div key={i} className="stack" style={{ gap: 4 }}>
+            <div className="row gap8">
+              <select className="grow" value={x.categoryId} onChange={(e) => setSplit(i, { categoryId: e.target.value })}><option value="">—</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              {splits.length > 1 && <input style={{ width: 110 }} inputMode="decimal" value={x.amount} onChange={(e) => setSplit(i, { amount: e.target.value })} />}
+              {splits.length > 1 && <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="Remover" onClick={() => setSplits((l) => l.filter((_, j) => j !== i))}><Icon name="trash" size={16} /></button>}
+            </div>
+            {x.hint && <span className="small muted">{x.hint}</span>}
+          </div>
+        ))}
+        <button className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setSplits((l) => [...l, { categoryId: '', amount: '', hint: '' }])}>+ dividir em outra categoria</button>
       </div>
 
       {data.items.length > 0 && (

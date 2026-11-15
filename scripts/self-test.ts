@@ -13,6 +13,7 @@ import { extractJson, filterSourced } from '../src/lib/ai-utils';
 import { buildIcs } from '../src/lib/ics';
 import { parseRss, mergeHeadlines } from '../src/lib/rss';
 import { parseSgs, realRate } from '../src/lib/bcb';
+import { parseReceiptText, splitByBucket, classifyItem } from '../src/lib/receipt-text';
 
 let n = 0;
 const t = (name: string, fn: () => void) => { fn(); n++; console.log('ok -', name); };
@@ -167,6 +168,25 @@ t('notícias grátis (RSS) e indicadores do BC', () => {
   const v = parseSgs([{ data: '13/11/2026', valor: '15.00' }]);
   assert.deepEqual(v, { data: '2026-11-13', valor: 15 });
   assert.ok(Math.abs(realRate(15, 5) - 9.52) < 0.01);
+});
+
+t('cupom pela foto: tipo de loja e divisão por categoria', () => {
+  const merc = `SUPERMERCADO BOA COMPRA LTDA\nCNPJ 12.345.678/0001-90\n14/11/2026 18:32\n001 7891000100103 PAO FRANCES KG 0,512 KG X 14,99 7,67\n002 2000001 PATINHO MOIDO KG 1,020 KG X 45,90 46,82\n003 7896 TOMATE ITALIANO KG 0,800 KG X 8,99 7,19\n004 7891234 DETERGENTE YPE 500ML 1 UN X 2,79 2,79\n005 789 BANANA PRATA KG\n1,2 KG X 6,99 8,39\nTOTAL R$ 72,86\nCARTAO DEBITO 72,86`;
+  const r = parseReceiptText(merc);
+  assert.equal(r.storeKind, 'mercado');
+  assert.equal(r.total, 72.86);
+  assert.equal(r.issuedOn, '2026-11-14');
+  assert.equal(r.paymentMethod, 'debito');
+  assert.equal(r.items.length, 5);
+  assert.equal(r.items[0].name, 'PAO FRANCES');
+  const sp = splitByBucket(r.items, r.total, r.storeKind);
+  assert.deepEqual(sp.map((x) => x.bucket), ['acougue', 'feira', 'padaria', 'mercado']);
+  assert.equal(Math.round(sp.reduce((s, x) => s + x.amount, 0) * 100) / 100, 72.86);
+  const p = parseReceiptText(`AUTO POSTO JUNDIAI LTDA\n15/11/2026 08:10\nBICO 03 ETANOL COMUM\n32,150 L X 4,190 134,71\nVALOR TOTAL R$ 134,71\nCREDITO`);
+  assert.equal(p.storeKind, 'posto');
+  assert.deepEqual(splitByBucket(p.items, p.total, p.storeKind), [{ bucket: 'combustivel', amount: 134.71, items: [] }]);
+  assert.equal(classifyItem('FRALDA PAMPERS G'), 'bebe');
+  assert.equal(classifyItem('QUEIJO MUSSARELA', 'padaria'), 'padaria');
 });
 
 console.log(`\n${n} grupos de teste passaram.`);

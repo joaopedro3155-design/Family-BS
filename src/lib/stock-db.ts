@@ -43,6 +43,8 @@ export interface SaveReceiptInput {
   householdId: string;
   accountId: string;
   categoryId: string | null;
+  /** divisão do total em várias categorias (padaria, açougue…) */
+  splits?: { categoryId: string | null; amount: number }[];
   source: 'nfce' | 'foto' | 'telegram';
   accessKey: string | null;
   store: string | null;
@@ -68,12 +70,14 @@ export async function saveReceipt(sb: SupabaseClient, r: SaveReceiptInput): Prom
   }).select('id').single();
   if (e1 || !rec) throw new Error(e1?.message ?? 'não salvou a nota');
 
-  const { data: tx, error: e2 } = await sb.from('transactions').insert({
-    household_id: r.householdId, account_id: r.accountId, category_id: r.categoryId, tipo: 'despesa', amount: r.total,
+  const parts = r.splits?.length ? r.splits : [{ categoryId: r.categoryId, amount: r.total }];
+  const { data: txs, error: e2 } = await sb.from('transactions').insert(parts.map((p) => ({
+    household_id: r.householdId, account_id: r.accountId, category_id: p.categoryId, tipo: 'despesa', amount: p.amount,
     occurred_on: r.issuedOn, description: r.store ? `Compra · ${r.store}` : 'Compra', payment_method: r.paymentMethod,
     spent_by: r.spentBy, source: 'nota_fiscal', installments: 1, installment_no: 1,
     ...(r.createdBy ? { created_by: r.createdBy } : {}),
-  }).select('id').single();
+  }))).select('id');
+  const tx = txs?.[0];
   if (e2 || !tx) throw new Error(e2?.message ?? 'não salvou o lançamento');
   await sb.from('receipts').update({ transaction_id: tx.id }).eq('id', rec.id);
 

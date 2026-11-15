@@ -11,6 +11,7 @@ export interface ReadReceiptResponse {
   suggestedCategory: string | null;
   items: ReceiptItem[];
   warning?: string;
+  storeKind?: 'posto' | 'padaria' | 'acougue' | 'mercado' | 'farmacia' | 'pet' | 'restaurante' | null;
 }
 
 export interface ReceiptItem { name: string; qty: number; unit: string | null; unitPrice: number | null; total: number | null }
