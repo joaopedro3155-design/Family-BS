@@ -20,7 +20,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font); -webkit-text-size-adjust: 100%; }
+html { height: 100%; }
+html, body { margin: 0; overflow-x: hidden; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font); -webkit-text-size-adjust: 100%; }
 a { color: var(--teal); }
 h1, h2, h3 { font-family: var(--font-head); margin: 0; }
 h1 { font-size: 28px; }
@@ -135,3 +136,55 @@ button, input, select, textarea { font-family: inherit; font-size: 15px; color: 
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(20,33,61,.45); z-index: 40; display: flex; align-items: flex-end; justify-content: center; }
 .sheet { background: var(--bg); width: 100%; max-width: 560px; max-height: 92dvh; overflow-y: auto; border-radius: 22px 22px 0 0; padding: 20px 20px calc(env(safe-area-inset-bottom) + 20px); display: flex; flex-direction: column; gap: 12px; }
 @media (min-width: 900px) { .sheet-backdrop { align-items: center; } .sheet { border-radius: 22px; } }
+
+/* ---------- local / link clicável ---------- */
+.loc-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; max-width: 100%; }
+.loc-link { display: inline-flex; align-items: flex-start; gap: 5px; background: none; border: none; padding: 4px 0; color: var(--teal); font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; text-decoration: none; max-width: 100%; }
+.loc-link svg { flex-shrink: 0; margin-top: 1px; }
+.loc-link span { text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.loc-menu { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px; }
+.loc-menu a { height: 34px; padding: 0 12px; border-radius: 17px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; }
+
+/* ---------- iPhone: barra de status e tela compacta ---------- */
+/* Com a barra de status translúcida, a faixa do relógio fica azul-marinho e o app ocupa a tela inteira. */
+body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: var(--ink); z-index: 50; }
+@media (max-width: 899px) {
+  h1 { font-size: 24px; }
+  h2 { font-size: 17px; }
+  .big { font-size: 24px; }
+  .mid { font-size: 18px; }
+  .content { padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 96px); gap: 14px; }
+  .card { padding: 14px; border-radius: 16px; }
+  .list-item { padding: 10px 12px; min-height: 48px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .tabbar { padding: 6px 0 max(env(safe-area-inset-bottom), 8px); }
+  .tab { font-size: 10.5px; min-height: 42px; }
+  .fab { width: 52px; height: 52px; right: 16px; bottom: calc(max(env(safe-area-inset-bottom), 8px) + 70px); }
+  /* evita o zoom automático do iPhone ao tocar em campos */
+  input, select, textarea { font-size: 16px; }
+}
+
+/* ---------- finanças ---------- */
+.fin-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.fin-action { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 64px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 600; }
+.fin-action.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: none; }
+.leak-row { width: 100%; background: none; border: none; border-bottom: 1px solid var(--line2); text-align: left; cursor: pointer; font-size: 14px; }
+.leak-items { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px 12px 34px; background: var(--bg); border-bottom: 1px solid var(--line2); }
+.sheet-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.xls { width: 100%; border-collapse: collapse; font-size: 13px; }
+.xls th, .xls td { padding: 7px 10px; border-bottom: 1px solid var(--line2); text-align: right; white-space: nowrap; }
+.xls th:first-child, .xls td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); z-index: 1; white-space: normal; min-width: 140px; max-width: 190px; }
+.xls thead th { font-size: 12px; color: var(--muted); text-transform: capitalize; background: var(--card); }
+.xls .cur { background: #F2FBF9; }
+.xls tr.grp td { background: var(--ink); color: #fff; font-weight: 700; }
+.xls tr.grp td:first-child { background: var(--ink); }
+.xls td.cat { padding-left: 16px; }
+.xls td.zero { color: #B4BAC6; }
+.xls td.over { color: var(--orange); font-weight: 700; }
+.xls .lim { color: var(--muted); font-size: 11px; }
+.xls tr.add-row td { padding: 4px 10px 8px 16px; text-align: left; position: sticky; left: 0; }
+.xls tr.add-row input { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; flex: 1; }
+.xls tr.tot td { font-weight: 700; background: var(--bg); }
+.xls tr.tot td:first-child { background: var(--bg); }
+.xls tr.saldo td { border-top: 2px solid var(--ink); }

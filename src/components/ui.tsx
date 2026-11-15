@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useState } from 'react';
 import { useApp } from './AppProvider';
 import { Icon } from './Icons';
 import { money } from '@/lib/format';
@@ -76,5 +77,41 @@ export function SoonPage({ title, phase, items }: { title: string; phase: string
         <ul className="list-plain">{items.map((i) => <li key={i}>{i}</li>)}</ul>
       </div>
     </>
+  );
+}
+
+/** Endereço vira atalho para Waze/Maps; link abre direto no navegador. */
+export function asUrl(loc: string): string | null {
+  const t = loc.trim();
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^www\./i.test(t) || /^(meet\.google|zoom\.us|teams\.microsoft|teams\.live)\S*$/i.test(t)) return `https://${t}`;
+  return null;
+}
+
+export function LocationLink({ location }: { location: string }) {
+  const [open, setOpen] = useState(false);
+  const url = asUrl(location);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  if (url) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="loc-link" onClick={stop}>
+        <Icon name="link" size={15} /><span>{url.replace(/^https?:\/\//, '').slice(0, 40)}</span>
+      </a>
+    );
+  }
+  const q = encodeURIComponent(location.trim());
+  return (
+    <span className="loc-wrap" onClick={stop}>
+      <button type="button" className="loc-link" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <Icon name="pin" size={15} /><span>{location}</span>
+      </button>
+      {open && (
+        <span className="loc-menu">
+          <a href={`https://waze.com/ul?q=${q}&navigate=yes`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Waze</a>
+          <a href={`https://www.google.com/maps/search/?api=1&query=${q}`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Google Maps</a>
+          <a href={`https://maps.apple.com/?q=${q}`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>Apple Mapas</a>
+        </span>
+      )}
+    </span>
   );
 }

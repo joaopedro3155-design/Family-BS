@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { EyeButton, Money, PageHeader, Bar, Empty } from '@/components/ui';
+import { EyeButton, Money, PageHeader, Bar, Empty, LocationLink } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { dayLabel, monthKey, monthRange, timeLabel, todayISO } from '@/lib/format';
 import { daysBetween, nextDue } from '@/lib/recurring';
@@ -80,7 +80,7 @@ export default function Hoje() {
             {events.map((e) => (
               <div key={e.id} className="list-item">
                 <span className="strong small" style={{ width: 44 }}>{timeLabel(e.starts_at)}</span>
-                <div className="grow"><span className="strong">{e.title}</span>{e.location && <span className="small muted">{e.location}</span>}</div>
+                <div className="grow"><span className="strong">{e.title}</span>{e.location && <LocationLink location={e.location} />}</div>
                 <span className={e.owner_user ? (members[0]?.user_id === e.owner_user ? 'pill blue' : 'pill orange') : 'pill'}>{memberName(e.owner_user)}</span>
               </div>
             ))}

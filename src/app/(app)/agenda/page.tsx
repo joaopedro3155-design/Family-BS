@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
-import { Chips, Empty, PageHeader } from '@/components/ui';
+import { Chips, Empty, PageHeader, LocationLink } from '@/components/ui';
 import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { dayLabel, timeLabel, todayISO } from '@/lib/format';
@@ -90,13 +90,14 @@ export default function Agenda() {
       <div className="stack" style={{ gap: 8 }}>
         {ofDay.length === 0 && <Empty>Nenhum compromisso neste dia.</Empty>}
         {ofDay.map((e) => (
-          <button key={e.id} className="event" style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => setEditing({ ...e, starts_at: toLocalInput(e.starts_at), ends_at: e.ends_at ? toLocalInput(e.ends_at) : null })}>
+          <div key={e.id} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setEditing({ ...e, starts_at: toLocalInput(e.starts_at), ends_at: e.ends_at ? toLocalInput(e.ends_at) : null })}>
             <span className="time">{timeLabel(e.starts_at)}</span>
             <span className="body" style={{ background: `${color(e.owner_user)}1A` }}>
               <span className="strong" style={{ color: color(e.owner_user) }}>{e.title}</span>
-              <span className="small">{memberName(e.owner_user)} · {EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}{e.location ? ` · ${e.location}` : ''}</span>
+              <span className="small">{memberName(e.owner_user)} · {EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}</span>
+              {e.location && <LocationLink location={e.location} />}
             </span>
-          </button>
+          </div>
         ))}
       </div>
 
@@ -174,7 +175,7 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
             </select>
           </label>
         </div>
-        <label className="field"><span>Local ou link</span><input value={v.location ?? ''} onChange={(e) => set({ location: e.target.value })} /></label>
+        <label className="field"><span>Local ou link</span><input value={v.location ?? ''} onChange={(e) => set({ location: e.target.value })} placeholder="Endereço (abre no Waze/Maps) ou link da reunião" /></label>
         <div className="field"><span>Lembretes</span>
           <div className="row wrap gap12">{REMINDERS.map((r) => <label key={r.m} className="check"><input type="checkbox" checked={(v.reminders ?? []).includes(r.m)} onChange={() => toggleRem(r.m)} />{r.label}</label>)}</div>
         </div>

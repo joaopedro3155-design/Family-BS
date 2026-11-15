@@ -20,8 +20,6 @@ const MOBILE_TABS = TABS.slice(0, 4);
 const MORE: { href: string; label: string; icon: IconName }[] = [
   { href: '/investir', label: 'Investir', icon: 'trend' },
   { href: '/noticias', label: 'Notícias', icon: 'news' },
-  { href: '/financas/recorrentes', label: 'Contas recorrentes', icon: 'repeat' },
-  { href: '/lancar', label: 'Lançar gasto', icon: 'plus' },
   { href: '/ajustes', label: 'Ajustes', icon: 'gear' },
 ];
 
@@ -57,8 +55,6 @@ function Shell({ children }: { children: React.ReactNode }) {
               <Icon name={t.icon} /> {t.label}
             </Link>
           ))}
-          <Link href="/financas/recorrentes" className={path.startsWith('/financas/recorrentes') ? 'side-link on' : 'side-link'}><Icon name="repeat" /> Contas recorrentes</Link>
-          <Link href="/lancar" className={path.startsWith('/lancar') ? 'side-link on' : 'side-link'}><Icon name="plus" /> Lançar</Link>
           <Link href="/ajustes" className={path.startsWith('/ajustes') ? 'side-link on' : 'side-link'}><Icon name="gear" /> Ajustes</Link>
         </nav>
         <span className="muted small side-foot">{householdName}</span>
@@ -69,7 +65,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       )}
       <nav className="tabbar" aria-label="Abas">
         {MOBILE_TABS.map((t) => (
-          <Link key={t.href} href={t.href} className={isActive(path, t.href) && !(t.href === '/financas' && path.startsWith('/financas/recorrentes')) ? 'tab on' : 'tab'}>
+          <Link key={t.href} href={t.href} className={isActive(path, t.href) ? 'tab on' : 'tab'}>
             <Icon name={t.icon} size={22} />
             <span>{t.label}</span>
           </Link>

@@ -5,7 +5,7 @@ import { AppProvider } from '@/components/AppProvider';
 export const metadata: Metadata = {
   title: 'Family BS',
   description: 'Agenda, finanças e casa da família',
-  appleWebApp: { capable: true, title: 'Family BS', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'Family BS', statusBarStyle: 'black-translucent' },
   icons: { icon: '/icon-192.png', apple: '/apple-touch-icon.png' },
 };
 
@@ -13,6 +13,7 @@ export const viewport: Viewport = {
   themeColor: '#14213D',
   width: 'device-width',
   initialScale: 1,
+  maximumScale: 1,
   viewportFit: 'cover',
 };
 
