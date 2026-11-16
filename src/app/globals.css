@@ -208,3 +208,5 @@ body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 
 .done-check:hover { border-color: var(--good); color: var(--good); }
 .done-check.on { background: var(--good); border-color: var(--good); color: #fff; }
 .event .body.done { opacity: .75; }
+
+.voice-btn { border: 1.5px dashed var(--teal); color: var(--teal-dark); background: var(--teal-soft); font-weight: 700; }

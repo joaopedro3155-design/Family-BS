@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppProvider';
 import { Chips, Empty, PageHeader, LocationLink, Segmented } from '@/components/ui';
 import { Icon } from '@/components/Icons';
@@ -8,6 +8,7 @@ import { dayLabel, timeLabel, todayISO } from '@/lib/format';
 import { EVENT_CATEGORIES, type EventItem } from '@/lib/types';
 import { fetchOccurrences, setDone, type Occurrence } from '@/lib/events-db';
 import { RECURRENCES, nextOccurrence, recurrenceLabel, type Recurrence } from '@/lib/recurrence';
+import { parseVoiceEvent, type VoiceEvent } from '@/lib/voice-event';
 
 const WD = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 const REMINDERS = [
@@ -264,6 +265,28 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label="Compromisso" onClick={(e) => e.stopPropagation()}>
         <div className="row between"><h2>{v.id ? 'Editar compromisso' : 'Novo compromisso'}</h2><button className="link-btn" onClick={onClose}>Fechar</button></div>
+        <VoiceFill onResult={(r) => {
+          const fold = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          const curDate = (v.starts_at ?? '').slice(0, 10) || todayISO();
+          const curTime = (v.starts_at ?? '').slice(11, 16) || '09:00';
+          const date = r.date ?? curDate;
+          const patch: Partial<EventItem> = { starts_at: `${date}T${r.start ?? curTime}` };
+          if (r.title) patch.title = r.title;
+          if (r.end) patch.ends_at = `${date}T${r.end}`;
+          if (r.location) patch.location = r.location;
+          if (r.notes) patch.notes = v.notes ? `${v.notes}\n${r.notes}` : r.notes;
+          if (r.category) patch.category = r.category;
+          if (r.recurrence) patch.recurrence = r.recurrence;
+          if (r.isTask) patch.is_task = true;
+          if (r.who === 'cbs') { patch.company = true; patch.owner_user = me?.user_id ?? null; if (!r.category) patch.category = 'entrega'; }
+          else if (r.who === 'both') { patch.company = false; patch.owner_user = null; }
+          else if (r.who === 'me') { patch.company = false; patch.owner_user = me?.user_id ?? null; }
+          else if (r.who) {
+            const m = members.find((x) => fold(x.display_name).startsWith(r.who!.split(' ')[0].replace('camila', 'kamila')));
+            if (m) { patch.company = false; patch.owner_user = m.user_id; }
+          }
+          set(patch);
+        }} />
         <label className="field"><span>Título</span><input value={v.title ?? ''} onChange={(e) => set({ title: e.target.value })} placeholder={v.company ? 'Entrega do projeto estrutural – Cliente X' : 'Reunião com cliente'} /></label>
         <div className="grid2">
           <label className="field"><span>Início</span><input type="datetime-local" value={v.starts_at ?? ''} onChange={(e) => set({ starts_at: e.target.value })} /></label>
@@ -314,6 +337,83 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
         {err && <p className="error">{err}</p>}
         <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Salvando…' : 'Salvar'}</button>
         {v.id && <button className="btn danger" onClick={remove}><Icon name="trash" size={16} /> Apagar</button>}
+      </div>
+    </div>
+  );
+}
+
+type SpeechRec = { lang: string; interimResults: boolean; continuous: boolean; start: () => void; stop: () => void; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null };
+
+/** Fala o compromisso (ou dita pelo microfone do teclado) e o app preenche os campos. */
+function VoiceFill({ onResult }: { onResult: (r: VoiceEvent) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [listening, setListening] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  const recRef = useRef<SpeechRec | null>(null);
+
+  function listen() {
+    const w = window as unknown as { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec };
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!SR) { setMsg('Toque no campo abaixo e use o 🎤 do teclado do iPhone para ditar.'); return; }
+    try {
+      const rec = new SR();
+      rec.lang = 'pt-BR'; rec.interimResults = true; rec.continuous = true;
+      let base = text ? `${text} ` : '';
+      rec.onresult = (e) => {
+        let finalT = '', interim = '';
+        for (let i = 0; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) finalT += r[0].transcript; else interim += r[0].transcript; }
+        setText(`${base}${finalT}${interim}`.trim());
+        if (finalT && !interim) { base = `${base}${finalT} `; }
+      };
+      rec.onerror = (e) => { setMsg(e.error === 'not-allowed' ? 'Microfone bloqueado. Libere em Ajustes › Apps › Safari › Microfone, ou dite pelo 🎤 do teclado.' : 'Não consegui ouvir. Tente de novo ou dite pelo 🎤 do teclado.'); setListening(false); };
+      rec.onend = () => setListening(false);
+      recRef.current = rec;
+      rec.start();
+      setListening(true); setMsg('Pode falar… toque em “Parar” quando terminar.');
+    } catch {
+      setMsg('Toque no campo abaixo e use o 🎤 do teclado do iPhone para ditar.');
+    }
+  }
+  function stop() { recRef.current?.stop(); setListening(false); setMsg(null); }
+  function apply() {
+    stop();
+    if (!text.trim()) return;
+    const r = parseVoiceEvent(text);
+    onResult(r);
+    const parts = [
+      r.title && `“${r.title}”`,
+      r.date && r.date.split('-').reverse().join('/'),
+      r.start && (r.end ? `${r.start}–${r.end}` : `início ${r.start}`),
+      r.recurrence && RECURRENCES.find((x) => x.id === r.recurrence)?.label.toLowerCase(),
+      r.location && (/\./.test(r.location) && !/\s/.test(r.location) ? 'link' : 'endereço'),
+      r.notes && 'observação',
+      r.who === 'cbs' ? 'empresa' : r.who && r.who !== 'both' && r.who !== 'me' ? r.who : null,
+    ].filter(Boolean);
+    setSummary(parts.length ? `Entendi: ${parts.join(' · ')}. Confira abaixo.` : 'Não entendi bem, confira os campos abaixo.');
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <div className="stack" style={{ gap: 6 }}>
+        <button type="button" className="btn voice-btn" onClick={() => { setOpen(true); setSummary(null); setTimeout(listen, 50); }}>🎤 Preencher com voz</button>
+        {summary && <span className="small" style={{ color: 'var(--good)' }}>{summary}</span>}
+      </div>
+    );
+  }
+  return (
+    <div className="card soft stack" style={{ gap: 8 }}>
+      <span className="small muted">Fale tudo de uma vez. Ex.: “Reunião com cliente amanhã às 14h, endereço Rua das Flores 120, observação levar o projeto impresso”.</span>
+      <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Fale ou dite aqui…" />
+      {msg && <span className="small muted">{msg}</span>}
+      <div className="row gap8">
+        {listening
+          ? <button type="button" className="btn small" onClick={stop}>⏹ Parar</button>
+          : <button type="button" className="btn small" onClick={listen}>🎤 Falar</button>}
+        <button type="button" className="btn small primary" disabled={!text.trim()} onClick={apply}>Preencher</button>
+        <button type="button" className="link-btn small" onClick={() => { stop(); setOpen(false); }}>Cancelar</button>
       </div>
     </div>
   );

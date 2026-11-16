@@ -15,6 +15,7 @@ import { parseRss, mergeHeadlines } from '../src/lib/rss';
 import { parseSgs, realRate } from '../src/lib/bcb';
 import { parseReceiptText, splitByBucket, classifyItem } from '../src/lib/receipt-text';
 import { occurrences, recurrenceLabel, nextOccurrence, rrule } from '../src/lib/recurrence';
+import { parseVoiceEvent } from '../src/lib/voice-event';
 
 let n = 0;
 const t = (name: string, fn: () => void) => { fn(); n++; console.log('ok -', name); };
@@ -224,6 +225,24 @@ t('comprovante de Pix e de boleto pela foto', () => {
   const cupom = parseReceiptText(`SUPERMERCADO X\nCUPOM FISCAL\n001 PAO FRANCES 7,67\nTOTAL R$ 7,67\nPIX 7,67`);
   assert.equal(cupom.docType, undefined);
   assert.equal(cupom.items.length, 1);
+});
+
+t('agenda por voz: data, horário, endereço, link e observação', () => {
+  const now = new Date(2026, 10, 16, 16, 40); // segunda 16/11/2026
+  const a = parseVoiceEvent('Reunião com cliente amanhã às 14h na Rua das Flores, 120, Centro, observação levar o projeto impresso', now);
+  assert.deepEqual([a.title, a.date, a.start, a.end, a.location, a.notes, a.category], ['Reunião com cliente', '2026-11-17', '14:00', null, 'Rua das Flores, 120, Centro', 'Levar o projeto impresso', 'cliente']);
+  const b = parseVoiceEvent('Consulta pediatra 25/11 das 10 às 11 da manhã endereço Avenida Jundiaí 1000 Anhangabaú', now);
+  assert.deepEqual([b.title, b.date, b.start, b.end, b.location], ['Consulta pediatra', '2026-11-25', '10:00', '11:00', 'Avenida Jundiaí 1000 Anhangabaú']);
+  const c = parseVoiceEvent('Entrega do projeto da AGCO na sexta às 18 horas para a CBS', now);
+  assert.deepEqual([c.title, c.date, c.start, c.who, c.category], ['Entrega do projeto da AGCO', '2026-11-20', '18:00', 'cbs', 'entrega']);
+  const d = parseVoiceEvent('Reunião online quinta às 15:30 link meet ponto google ponto com barra abc', now);
+  assert.deepEqual([d.title, d.date, d.start, d.location], ['Reunião online', '2026-11-19', '15:30', 'meet.google.com/abc']);
+  const e = parseVoiceEvent('Culto sábado às duas da tarde', now);
+  assert.deepEqual([e.title, e.date, e.start], ['Culto', '2026-11-21', '14:00']);
+  const f = parseVoiceEvent('Terapia toda quinta às 9h para a Camila', now);
+  assert.deepEqual([f.title, f.recurrence, f.start, f.who, f.date], ['Terapia', 'weekly', '09:00', 'kamila', '2026-11-19']);
+  const g = parseVoiceEvent('Médico às 3 da tarde', now);
+  assert.deepEqual([g.title, g.date, g.start, g.end], ['Médico', null, '15:00', null]);
 });
 
 console.log(`\n${n} grupos de teste passaram.`);
