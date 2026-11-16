@@ -179,7 +179,7 @@ export function parseVoiceEvent(text: string, now = new Date()): VoiceEvent {
   // 5) de quem
   let who: VoiceEvent['who'] = null;
   if (w.take(/\b(?:da|pela|na|para a|pra)\s+(?:cbs(?: engenharia)?|empresa)\b/) || w.take(/\bcbs(?: engenharia)?\b/)) who = 'cbs';
-  else if (w.take(/\b(?:para |pra )?(?:nos dois|os dois)\b/)) who = 'both';
+  else if (w.take(/\b(?:para |pra )?(?:nos dois|os dois|todos|todo mundo|a familia toda|a familia)\b/)) who = 'both';
   else {
     const pm = w.take(/\b(?:para|pra)\s+(?:a\s+|o\s+)?(kamila|camila|joao(?: pedro)?|mim)\b/);
     if (pm) who = pm[1] === 'camila' ? 'kamila' : pm[1] === 'mim' ? 'me' : pm[1];

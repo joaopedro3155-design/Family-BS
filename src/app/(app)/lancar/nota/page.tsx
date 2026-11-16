@@ -252,7 +252,7 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
         <div className="grid2">
           <label className="field"><span>Pagamento</span><select value={method} onChange={(e) => setMethod(e.target.value)}>{PAYMENT_METHODS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
           {kind === 'PF' ? (
-            <label className="field"><span>Quem</span><select value={spentBy} onChange={(e) => setSpentBy(e.target.value)}><option value="">Os dois</option>{members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}</select></label>
+            <label className="field"><span>Quem</span><select value={spentBy} onChange={(e) => setSpentBy(e.target.value)}><option value="">Todos</option>{members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}</select></label>
           ) : <span />}
         </div>
       </div>

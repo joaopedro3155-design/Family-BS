@@ -66,7 +66,7 @@ async function handle(msg: TgMessage, chatId: number) {
   if (text === '/hoje') {
     const start = new Date(`${today}T00:00:00-03:00`).toISOString(); const end = new Date(`${today}T23:59:59-03:00`).toISOString();
     const { data: ev } = await sb.from('events').select('title,starts_at,owner_user').eq('household_id', h).gte('starts_at', start).lte('starts_at', end).order('starts_at');
-    const name = (id: string | null) => (id ? ctx.members.find((m) => m.user_id === id)?.display_name.split(' ')[0] : 'Os dois');
+    const name = (id: string | null) => (id ? ctx.members.find((m) => m.user_id === id)?.display_name.split(' ')[0] : 'Todos');
     await reply(chatId, ev?.length ? `<b>Hoje</b>\n${ev.map((e) => `${timeLabel(e.starts_at)} · ${esc(e.title)} (${name(e.owner_user)})`).join('\n')}` : 'Nada marcado para hoje.');
     return;
   }

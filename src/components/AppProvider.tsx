@@ -31,6 +31,50 @@ export function useApp(): AppState {
   return v;
 }
 
+type SB = ReturnType<typeof supabase>;
+
+/**
+ * Se a pessoa ficou em duas famílias (criou a própria antes de aceitar o convite),
+ * usa a família com mais pessoas e leva para ela o que foi criado na família "sozinha".
+ */
+async function pickHousehold(sb: SB, uid: string, mine: Member[]): Promise<string> {
+  if (mine.length === 1) return mine[0].household_id;
+  const ids = mine.map((m) => m.household_id);
+  const { data: all } = await sb.from('members').select('household_id,user_id').in('household_id', ids);
+  const count = new Map<string, number>();
+  for (const r of all ?? []) count.set(r.household_id, (count.get(r.household_id) ?? 0) + 1);
+  const main = [...ids].sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0))[0];
+  for (const other of ids) {
+    if (other === main || (count.get(other) ?? 0) > 1) continue;
+    await mergeHousehold(sb, other, main).catch(() => {});
+  }
+  return main;
+}
+
+async function mergeHousehold(sb: SB, from: string, to: string) {
+  // compromissos, estoque, lista de compras e investimentos
+  for (const t of ['events', 'stock_items', 'stock_movements', 'shopping_items', 'portfolio_positions', 'push_subscriptions']) {
+    await sb.from(t).update({ household_id: to }).eq('household_id', from);
+  }
+  // lançamentos e contas: troca conta (PF/PJ) e categoria (pelo nome) para as da família principal
+  const [{ data: accFrom }, { data: accTo }, { data: catFrom }, { data: catTo }] = await Promise.all([
+    sb.from('accounts').select('id,kind').eq('household_id', from),
+    sb.from('accounts').select('id,kind').eq('household_id', to),
+    sb.from('categories').select('id,name,tipo').eq('household_id', from),
+    sb.from('categories').select('id,name,tipo,account_id').eq('household_id', to),
+  ]);
+  const accMap = new Map((accFrom ?? []).map((a) => [a.id, (accTo ?? []).find((b) => b.kind === a.kind)?.id]));
+  const catMap = new Map((catFrom ?? []).map((c) => [c.id, (catTo ?? []).find((d) => d.name.toLowerCase() === c.name.toLowerCase() && d.tipo === c.tipo)?.id ?? null]));
+  for (const t of ['transactions', 'recurring_bills']) {
+    const { data: rows } = await sb.from(t).select('id,account_id,category_id').eq('household_id', from);
+    for (const r of rows ?? []) {
+      const acc = accMap.get(r.account_id);
+      if (!acc) continue;
+      await sb.from(t).update({ household_id: to, account_id: acc, category_id: r.category_id ? catMap.get(r.category_id) ?? null : null }).eq('id', r.id);
+    }
+  }
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
   const [status, setStatus] = useState<Status>(configured ? 'loading' : 'error');
@@ -54,13 +98,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!s) { setStatus('signed-out'); return; }
     try {
       const sb = supabase();
-      let { data: mine } = await sb.from('members').select('*').eq('user_id', s.user.id).limit(1);
-      if (!mine || mine.length === 0) {
-        await sb.rpc('accept_invite');
-        ({ data: mine } = await sb.from('members').select('*').eq('user_id', s.user.id).limit(1));
-      }
+      // convite pendente para este e-mail? entra na família de quem convidou
+      await sb.rpc('accept_invite');
+      const { data: mine } = await sb.from('members').select('*').eq('user_id', s.user.id).order('created_at');
       if (!mine || mine.length === 0) { setStatus('onboarding'); return; }
-      const h = (mine[0] as Member).household_id;
+      const h = await pickHousehold(sb, s.user.id, mine as Member[]);
       setHouseholdId(h);
       const [hh, mem, acc] = await Promise.all([
         sb.from('households').select('name').eq('id', h).single(),
@@ -104,7 +146,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleValues: () => setShowValues((v) => !v),
       reload: async () => { const { data } = await supabase().auth.getSession(); await load(data.session); },
       reloadCategories: async () => { if (householdId) await loadCategories(householdId); },
-      memberName: (id) => (id ? members.find((m) => m.user_id === id)?.display_name ?? '—' : 'Os dois'),
+      memberName: (id) => (id ? members.find((m) => m.user_id === id)?.display_name ?? '—' : 'Todos'),
     };
   }, [status, error, session, householdId, householdName, members, accounts, categories, showValues, load, loadCategories]);
 

@@ -6,7 +6,7 @@ import { Icon } from '@/components/Icons';
 import { supabase } from '@/lib/supabase';
 import { dayLabel, timeLabel, todayISO } from '@/lib/format';
 import { EVENT_CATEGORIES, type EventItem } from '@/lib/types';
-import { fetchOccurrences, setDone, type Occurrence } from '@/lib/events-db';
+import { fetchOccurrences, isVisibleTo, setDone, type Occurrence } from '@/lib/events-db';
 import { RECURRENCES, nextOccurrence, recurrenceLabel, type Recurrence } from '@/lib/recurrence';
 import { parseVoiceEvent, type VoiceEvent } from '@/lib/voice-event';
 
@@ -79,7 +79,7 @@ export default function Agenda() {
     if (!householdId || view !== 'recorrentes') return;
     let alive = true;
     supabase().from('events').select('*').eq('household_id', householdId).neq('recurrence', 'none').order('title')
-      .then(({ data }) => { if (alive) setSeries((data as EventItem[]) ?? []); });
+      .then(async ({ data }) => { const uid = (await supabase().auth.getSession()).data.session?.user.id; if (alive) setSeries(((data as EventItem[]) ?? []).filter((e) => isVisibleTo(e, uid))); });
     return () => { alive = false; };
   }, [householdId, view, rev]);
 
@@ -299,9 +299,9 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
               if (x === CBS) set({ company: true, owner_user: me?.user_id ?? null, category: v.category === 'pessoal' ? 'entrega' : v.category });
               else set({ company: false, owner_user: x || null });
             }}>
-              <option value="">Os dois</option>
-              {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}
-              <option value={CBS}>{cbsName}</option>
+              <option value="">Todos (a família inteira vê)</option>
+              {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}{m.user_id === me?.user_id ? ' (só eu vejo)' : ' (só ela/ele vê)'}</option>)}
+              <option value={CBS}>{cbsName} (só eu vejo)</option>
             </select>
           </label>
           <label className="field"><span>Tipo</span>

@@ -140,7 +140,7 @@ export default function Lancar() {
             ) : kind === 'PF' ? (
               <label className="field"><span>Quem</span>
                 <select value={spentBy} onChange={(e) => setSpentBy(e.target.value)}>
-                  <option value="">Os dois</option>
+                  <option value="">Todos</option>
                   {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}
                 </select>
               </label>
@@ -149,7 +149,7 @@ export default function Lancar() {
           {kind === 'PF' && tipo === 'despesa' && method === 'credito' && (
             <label className="field"><span>Quem</span>
               <select value={spentBy} onChange={(e) => setSpentBy(e.target.value)}>
-                <option value="">Os dois</option>
+                <option value="">Todos</option>
                 {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}
               </select>
             </label>

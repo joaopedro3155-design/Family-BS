@@ -126,6 +126,7 @@ export default function Ajustes() {
             <label className="field"><span>E-mail</span><input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} /></label>
           </div>
           <button className="btn" disabled={!inviteEmail.includes('@')} onClick={invite}>Convidar</button>
+          <p className="small muted">Use o <strong>mesmo e-mail</strong> com que a pessoa entra no app. Quando ela abrir o Family BS, entra nesta família automaticamente e o que ela já tinha criado (compromissos, lançamentos) vem junto. Tudo marcado como “Todos” aparece para todos; o que for de uma pessoa só ou da empresa fica só para o dono.</p>
         </section>
 
         <section className="card stack">

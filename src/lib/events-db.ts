@@ -2,6 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EventItem } from './types';
 import { expandEvents } from './recurrence';
 
+/** "Todos" (sem dono) aparece para a família inteira; o que é de uma pessoa ou da empresa só para o dono e quem criou. */
+export function isVisibleTo(e: Pick<EventItem, 'owner_user' | 'created_by'>, uid: string | undefined) {
+  return !e.owner_user || !uid || e.owner_user === uid || e.created_by === uid;
+}
+
 export type Occurrence = EventItem & { occ: string; done: boolean };
 
 /** Compromissos e tarefas no intervalo, com as repetições já abertas e o "feito" de cada dia. */
@@ -9,8 +14,10 @@ export async function fetchOccurrences(sb: SupabaseClient, householdId: string, 
   let a = sb.from('events').select('*').eq('household_id', householdId).eq('recurrence', 'none').gte('starts_at', from).lte('starts_at', to).order('starts_at').limit(opts.limit ?? 1000);
   let b = sb.from('events').select('*').eq('household_id', householdId).neq('recurrence', 'none').lte('starts_at', to).or(`recurrence_until.is.null,recurrence_until.gte.${from.slice(0, 10)}`);
   if (opts.company !== undefined) { a = a.eq('company', opts.company); b = b.eq('company', opts.company); }
-  const [{ data: one }, { data: rec }] = await Promise.all([a, b]);
-  let list = expandEvents([...((one ?? []) as EventItem[]), ...((rec ?? []) as EventItem[])], from, to);
+  const [{ data: one }, { data: rec }, { data: sess }] = await Promise.all([a, b, sb.auth.getSession()]);
+  const uid = sess.session?.user.id;
+  const mine = (e: EventItem) => isVisibleTo(e, uid);
+  let list = expandEvents([...((one ?? []) as EventItem[]), ...((rec ?? []) as EventItem[])].filter(mine), from, to);
   if (opts.limit) list = list.slice(0, opts.limit);
   const taskIds = [...new Set(list.map((e) => e.id))];
   const done = new Set<string>();

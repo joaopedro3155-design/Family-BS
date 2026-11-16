@@ -72,6 +72,7 @@ export interface EventItem {
   ends_at: string | null;
   owner_user: string | null;
   company: boolean;
+  created_by?: string | null;
   recurrence: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
   recurrence_interval: number;
   recurrence_until: string | null;
