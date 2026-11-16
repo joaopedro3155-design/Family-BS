@@ -202,3 +202,9 @@ body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 
 /* ---------- tarefas ---------- */
 .task-check { width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--teal); background: #fff; color: #fff; font-weight: 800; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; flex-shrink: 0; }
 .task-check.on { background: var(--teal); }
+
+/* ---------- concluir compromisso/tarefa ---------- */
+.done-check { width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--line); background: #fff; color: transparent; font-weight: 800; font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.done-check:hover { border-color: var(--good); color: var(--good); }
+.done-check.on { background: var(--good); border-color: var(--good); color: #fff; }
+.event .body.done { opacity: .75; }

@@ -80,9 +80,8 @@ export default function Hoje() {
             {events.length === 0 && <Empty>Nada marcado para hoje.</Empty>}
             {events.map((e) => (
               <div key={`${e.id}-${e.occ}`} className="list-item">
-                {e.is_task ? (
-                  <button className={e.done ? 'task-check on' : 'task-check'} aria-label={e.done ? 'Desmarcar tarefa' : 'Marcar como feita'} onClick={async () => { await setDone(supabase(), e.id, e.occ, !e.done); setEvents((l) => l.map((x) => (x.id === e.id && x.occ === e.occ ? { ...x, done: !e.done } : x))); }}>{e.done ? '✓' : ''}</button>
-                ) : <span className="strong small" style={{ width: 44 }}>{timeLabel(e.starts_at)}</span>}
+                <button className={e.done ? 'done-check on' : 'done-check'} aria-label={e.done ? 'Desfazer conclusão' : 'Concluir'} onClick={async () => { await setDone(supabase(), e.id, e.occ, !e.done); setEvents((l) => l.map((x) => (x.id === e.id && x.occ === e.occ ? { ...x, done: !e.done } : x))); }}>✓</button>
+                <span className="strong small" style={{ width: 44 }}>{timeLabel(e.starts_at)}</span>
                 <div className="grow"><span className="strong" style={e.done ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{e.title}</span>{e.location && <LocationLink location={e.location} />}</div>
                 <span className={e.company ? 'pill gray' : e.owner_user ? (members[0]?.user_id === e.owner_user ? 'pill blue' : 'pill orange') : 'pill'}>{e.company ? accounts.find((a) => a.kind === 'PJ')?.name ?? 'Empresa' : memberName(e.owner_user)}</span>
               </div>

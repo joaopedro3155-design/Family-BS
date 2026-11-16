@@ -111,12 +111,13 @@ export default function Agenda() {
   });
   const card = (e: Occurrence, timeText: string) => (
     <div key={`${e.id}-${e.occ}`} className="event" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => openEvent(e)}>
-      {e.is_task ? (
-        <span className="time"><button className={e.done ? 'task-check on' : 'task-check'} aria-label={e.done ? 'Desmarcar tarefa' : 'Marcar como feita'} onClick={(ev) => { ev.stopPropagation(); toggleDone(e); }}>{e.done ? '✓' : ''}</button></span>
-      ) : <span className="time">{timeText}</span>}
-      <span className="body" style={{ background: `${color(e)}1A` }}>
-        <span className="strong" style={{ color: color(e), ...(e.done ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>{e.title}</span>
-        <span className="small">{ownerLabel(e)} · {e.is_task ? `Tarefa${timeText ? ` · ${timeText}` : ''}` : EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}{e.recurrence !== 'none' ? ' · ↻' : ''}</span>
+      <span className="time">{timeText}</span>
+      <span className={e.done ? 'body done' : 'body'} style={{ background: `${color(e)}1A` }}>
+        <span className="row between" style={{ alignItems: 'flex-start', gap: 8 }}>
+          <span className="strong" style={{ color: color(e), ...(e.done ? { textDecoration: 'line-through', opacity: 0.6 } : {}) }}>{e.title}</span>
+          <button className={e.done ? 'done-check on' : 'done-check'} aria-label={e.done ? 'Desfazer conclusão' : 'Concluir'} title={e.done ? 'Desfazer' : 'Concluir'} onClick={(ev) => { ev.stopPropagation(); toggleDone(e); }}>✓</button>
+        </span>
+        <span className="small">{ownerLabel(e)} · {e.is_task ? 'Tarefa' : EVENT_CATEGORIES.find((c) => c.id === e.category)?.label}{e.recurrence !== 'none' ? ' · ↻' : ''}{e.done ? ' · concluído' : ''}</span>
         {e.location && <LocationLink location={e.location} />}
       </span>
     </div>

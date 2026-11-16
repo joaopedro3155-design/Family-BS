@@ -36,7 +36,9 @@ export async function POST(req: Request) {
   const ids = [...new Set(occ.map((e) => e.id))];
   const { data: sentRows } = ids.length ? await sb.from('event_notifications').select('event_id,minutes_before,occurs_at').in('event_id', ids) : { data: [] };
   const sent = new Set((sentRows ?? []).map((r) => `${r.event_id}|${new Date(r.occurs_at).toISOString()}:${r.minutes_before}`));
-  const virtual = occ.map((e) => ({ ...e, id: `${e.id}|${new Date(e.starts_at).toISOString()}` }));
+  const { data: doneRows } = ids.length ? await sb.from('event_done').select('event_id,occurs_on').in('event_id', ids) : { data: [] };
+  const doneSet = new Set((doneRows ?? []).map((r) => `${r.event_id}|${r.occurs_on}`));
+  const virtual = occ.filter((e) => !doneSet.has(`${e.id}|${e.occ}`)).map((e) => ({ ...e, id: `${e.id}|${new Date(e.starts_at).toISOString()}` }));
   for (const r of dueEventReminders(virtual, sent, now)) {
     const e = virtual.find((x) => x.id === r.eventId)!;
     const [eventId, occursAt] = r.eventId.split('|');

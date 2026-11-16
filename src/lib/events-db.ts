@@ -12,7 +12,7 @@ export async function fetchOccurrences(sb: SupabaseClient, householdId: string, 
   const [{ data: one }, { data: rec }] = await Promise.all([a, b]);
   let list = expandEvents([...((one ?? []) as EventItem[]), ...((rec ?? []) as EventItem[])], from, to);
   if (opts.limit) list = list.slice(0, opts.limit);
-  const taskIds = [...new Set(list.filter((e) => e.is_task).map((e) => e.id))];
+  const taskIds = [...new Set(list.map((e) => e.id))];
   const done = new Set<string>();
   if (taskIds.length) {
     const { data } = await sb.from('event_done').select('event_id,occurs_on').in('event_id', taskIds).gte('occurs_on', list[0]?.occ ?? from.slice(0, 10)).lte('occurs_on', list[list.length - 1]?.occ ?? to.slice(0, 10));
