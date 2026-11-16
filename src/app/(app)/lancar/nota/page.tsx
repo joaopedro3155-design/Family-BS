@@ -5,7 +5,7 @@ import { useApp } from '@/components/AppProvider';
 import { PageHeader, Segmented, CategorySelect } from '@/components/ui';
 import { Icon } from '@/components/Icons';
 import { api, useStatus } from '@/lib/api';
-import { compressImage, decodeQr, qrToUrl, scanRegion } from '@/lib/image';
+import { compressImage, decodeQr, grab, qrToUrl, scanRegion, zxingScan } from '@/lib/image';
 import { supabase } from '@/lib/supabase';
 import { money, parseMoney, todayISO } from '@/lib/format';
 import { matchStockItem, STOCK_CATEGORIES, type ReadReceiptResponse, type StockItem } from '@/lib/stock';
@@ -105,15 +105,19 @@ function QrScanner({ onClose, onResult }: { onClose: () => void; onResult: (url:
       v.setAttribute('playsinline', 'true');
       await v.play().catch(() => {});
       setMsg('Centralize o QR code no quadrado');
-      const tick = (t: number) => {
+      let busy = false;
+      const tick = async (t: number) => {
         if (stopped) return;
         raf = requestAnimationFrame(tick);
-        if (t - last < 120 || v.readyState < 2 || !v.videoWidth) return;
-        last = t; n++;
-        // alterna recortes: centro (rápido) e quadro inteiro (QR maior ou fora do centro)
-        const plan: [number, number, boolean][] = [[0.7, 720, false], [0.5, 640, false], [1, 1000, n % 6 === 0]];
-        const [crop, size, inv] = plan[n % plan.length];
-        const raw = scanRegion(v, v.videoWidth, v.videoHeight, crop, size, canvas, inv);
+        if (busy || t - last < 150 || v.readyState < 2 || !v.videoWidth) return;
+        last = t; n++; busy = true;
+        // ZXing no recorte do quadrado (lê QR denso/amassado); jsQR de reforço de vez em quando
+        const plan: [number, number][] = [[0.75, 1000], [0.55, 800], [1, 1280]];
+        const [crop, size] = plan[n % plan.length];
+        let raw = await zxingScan(grab(v, v.videoWidth, v.videoHeight, crop, size, canvas), n % 3 === 2);
+        if (!raw && n % 4 === 0) raw = scanRegion(v, v.videoWidth, v.videoHeight, 0.7, 720, canvas, false);
+        busy = false;
+        if (stopped) return;
         const url = raw ? qrToUrl(raw) : null;
         if (raw && !url) setMsg('Esse QR não é de nota fiscal (NFC-e).');
         if (url) {
