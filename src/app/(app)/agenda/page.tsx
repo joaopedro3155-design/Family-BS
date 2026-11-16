@@ -65,11 +65,11 @@ export default function Agenda() {
 
   // lista das próximas datas da empresa (a partir de hoje, sem depender da semana)
   useEffect(() => {
-    if (!householdId || who !== CBS || mode !== 'lista') return;
+    if (!householdId || mode !== 'lista') return;
     let alive = true;
     const start = new Date(`${todayISO()}T00:00:00`).toISOString();
     const end = new Date(Date.now() + 365 * 86400000).toISOString();
-    fetchOccurrences(supabase(), householdId, start, end, { company: true, limit: 200 }).then((data) => { if (alive) setUpcoming(data); });
+    fetchOccurrences(supabase(), householdId, start, end, { company: who === CBS ? true : who === 'all' ? undefined : false, limit: 300 }).then((data) => { if (alive) setUpcoming(data); });
     return () => { alive = false; };
   }, [householdId, who, mode, rev]);
 
@@ -93,7 +93,7 @@ export default function Agenda() {
   const ofDay = visible.filter((e) => localDay(e.starts_at) === selected);
   const color = (e: Pick<EventItem, 'owner_user' | 'company'>) => (e.company ? CBS_COLOR : e.owner_user ? members.find((m) => m.user_id === e.owner_user)?.color ?? '#E8590C' : '#E8590C');
   const ownerLabel = (e: EventItem) => (e.company ? cbsName : memberName(e.owner_user));
-  const showList = who === CBS && mode === 'lista';
+  const showList = mode === 'lista';
   // repetição: abre a série original (a data de início é a primeira ocorrência)
   const openEvent = async (e: EventItem) => {
     let src = e;
@@ -123,9 +123,10 @@ export default function Agenda() {
   );
   const byDate = useMemo(() => {
     const m = new Map<string, Occurrence[]>();
-    for (const e of upcoming) { const d = localDay(e.starts_at); m.set(d, [...(m.get(d) ?? []), e]); }
+    for (const e of upcoming.filter(matchWho)) { const d = localDay(e.starts_at); m.set(d, [...(m.get(d) ?? []), e]); }
     return Array.from(m.entries());
-  }, [upcoming]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upcoming, who]);
 
   return (
     <>
@@ -158,11 +159,11 @@ export default function Agenda() {
           })}
         </div>
       ) : (<>
-      {who === CBS && <Segmented value={mode} onChange={setMode} options={[{ id: 'semana', label: 'Semana' }, { id: 'lista', label: 'Próximas datas' }]} />}
+      <Segmented value={mode} onChange={setMode} options={[{ id: 'semana', label: 'Semana' }, { id: 'lista', label: 'Lista (próximas datas)' }]} />
 
       {showList ? (
         <div className="stack" style={{ gap: 14 }}>
-          {byDate.length === 0 && <Empty>Nenhuma entrega ou compromisso da {cbsName} pela frente.</Empty>}
+          {byDate.length === 0 && <Empty>{who === CBS ? `Nenhuma entrega ou compromisso da ${cbsName} pela frente.` : 'Nenhum compromisso pela frente.'}</Empty>}
           {byDate.map(([d, list]) => (
             <div key={d} className="stack" style={{ gap: 8 }}>
               <div className="row between"><span className="small strong muted">{dayLabel(d).toUpperCase()}</span><span className="pill">{daysUntil(d)}</span></div>
