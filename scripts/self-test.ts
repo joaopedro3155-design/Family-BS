@@ -206,4 +206,24 @@ t('agenda: repetição diária, semanal, mensal e anual', () => {
   assert.deepEqual(occurrences({ starts_at: '2026-11-20T12:00:00Z' }, '2026-11-01T00:00:00Z', '2026-11-30T00:00:00Z'), ['2026-11-20T12:00:00Z']);
 });
 
+t('comprovante de Pix e de boleto pela foto', () => {
+  const pix = parseReceiptText(`itaú\nComprovante de Pix\nR$ 183,96\nRealizado em 16/11/2026 às 15:36:30\nDe\nJoao Pedro Costa Boa Sorte\nCPF: ***.484.862-**\nInstituição: ITAÚ UNIBANCO S.A\nPara\nENEL DISTRIBUICAO SAO PAULO\nCPF/CNPJ: 61695227000193\nInstituição: ITAÚ UNIBANCO S.A.\nDados da transação\nIdentificador: 010280161383`);
+  assert.equal(pix.docType, 'pix');
+  assert.equal(pix.total, 183.96);
+  assert.equal(pix.issuedOn, '2026-11-16');
+  assert.equal(pix.store, 'ENEL DISTRIBUICAO SAO PAULO');
+  assert.equal(pix.cnpj, '61695227000193');
+  assert.equal(pix.paymentMethod, 'pix');
+  assert.ok(new RegExp(pix.suggestedCategory!, 'i').test('Luz'));
+  const bol = parseReceiptText(`Comprovante de pagamento de boleto\nBeneficiário: SABESP CIA SANEAMENTO BASICO\nData de vencimento 10/11/2026\nData do pagamento 09/11/2026\nValor do documento R$ 98,40\nValor pago R$ 98,40`);
+  assert.equal(bol.docType, 'boleto');
+  assert.equal(bol.total, 98.4);
+  assert.equal(bol.issuedOn, '2026-11-09');
+  assert.ok(new RegExp(bol.suggestedCategory!, 'i').test('Água'));
+  // cupom de mercado pago com Pix continua sendo cupom
+  const cupom = parseReceiptText(`SUPERMERCADO X\nCUPOM FISCAL\n001 PAO FRANCES 7,67\nTOTAL R$ 7,67\nPIX 7,67`);
+  assert.equal(cupom.docType, undefined);
+  assert.equal(cupom.items.length, 1);
+});
+
 console.log(`\n${n} grupos de teste passaram.`);

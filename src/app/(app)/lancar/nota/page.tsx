@@ -41,7 +41,7 @@ export default function Nota() {
           // sem QR: lê o texto do cupom no próprio celular (grátis)
           const text = await ocrImage(f, setBusy);
           const parsed = parseReceiptText(text);
-          if (!parsed.total && !parsed.items.length) throw new Error('Não consegui ler o cupom. Tire a foto de perto, reta e com boa luz, mostrando o TOTAL.');
+          if (!parsed.total && !parsed.items.length) throw new Error('Não consegui ler. Tire a foto de perto, reta e com boa luz, mostrando o valor (ou mande o print do comprovante).');
           setData(parsed);
         }
       }
@@ -63,11 +63,11 @@ export default function Nota() {
     <>
       <PageHeader title="Nota fiscal ou comprovante" back="/lancar" />
       <div className="card stack">
-        <p>Aponte a câmera para o <strong>QR code do cupom fiscal</strong>: ele traz todos os itens e preços.</p>
+        <p>Aponte a câmera para o <strong>QR code do cupom fiscal</strong> (traz todos os itens e preços) ou mande a foto de um <strong>cupom, comprovante de Pix ou de boleto</strong>.</p>
         <button className="btn primary" disabled={!!busy} onClick={() => setScanning(true)}>{busy ?? 'Ler QR code com a câmera'}</button>
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) fromFile(f); e.target.value = ''; }} />
-        <button className="btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>Foto do cupom (posto, mercado, padaria…)</button>
-        <p className="small muted">Sem QR code, o app lê o texto da foto, descobre se é posto, mercado, padaria ou açougue e separa os itens nas categorias.</p>
+        <button className="btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>Foto de cupom ou comprovante (Pix, boleto)</button>
+        <p className="small muted">Sem QR code, o app lê o texto da foto: em cupom de posto, mercado, padaria ou açougue separa os itens nas categorias; em comprovante de Pix ou boleto pega valor, data e quem recebeu (ex.: Enel → Luz, Sabesp → Água). Dá para usar print da tela do banco.</p>
       </div>
       <div className="card stack">
         <label className="field"><span>Ou cole o link do QR code</span><input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://www.nfce.fazenda.sp.gov.br/…" /></label>
@@ -152,14 +152,18 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
   const [spentBy, setSpentBy] = useState(me?.user_id ?? '');
   const account = accounts.find((a) => a.kind === kind);
   const cats = categories.filter((c) => c.account_id === account?.id && c.tipo === 'despesa' && !c.archived);
-  const storeKind = data.storeKind ?? detectStore(`${data.store ?? ''}\n${data.items.map((i) => i.name).join('\n')}`);
+  const docLabel = data.docType === 'pix' ? 'Pix' : data.docType === 'boleto' ? 'boleto' : data.docType === 'transferencia' ? 'transferência' : null;
+  const storeKind = data.docType && data.docType !== 'cupom' ? null : data.storeKind ?? detectStore(`${data.store ?? ''}\n${data.items.map((i) => i.name).join('\n')}`);
   const [splits, setSplits] = useState<{ categoryId: string; amount: string; hint: string }[]>([]);
   const [splitFor, setSplitFor] = useState<string | null>(null);
   // sugere a divisão por categoria (pão → padaria, carne → açougue, combustível…)
   if (account && splitFor !== account.id) {
-    const fallback = cats.find((c) => c.name === data.suggestedCategory) ?? cats.find((c) => /supermercado/i.test(c.name));
+    let sugRe: RegExp | null = null;
+    try { sugRe = data.suggestedCategory ? new RegExp(data.suggestedCategory, 'i') : null; } catch { sugRe = null; }
+    const isPayment = !!data.docType && data.docType !== 'cupom';
+    const fallback = cats.find((c) => c.name === data.suggestedCategory) ?? (sugRe ? cats.find((c) => sugRe!.test(c.name)) : undefined) ?? (isPayment ? undefined : cats.find((c) => /supermercado/i.test(c.name)));
     const merged = new Map<string, { amount: number; hint: string[] }>();
-    for (const sp of splitByBucket(data.items, data.total, storeKind)) {
+    for (const sp of isPayment ? [] : splitByBucket(data.items, data.total, storeKind)) {
       const cat = kind === 'PF' ? cats.find((c) => BUCKETS[sp.bucket].cat.test(c.name)) ?? fallback : fallback;
       const id = cat?.id ?? '';
       const e = merged.get(id) ?? { amount: 0, hint: [] };
@@ -212,7 +216,7 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
       const sb = supabase();
       const r = await saveReceipt(sb, {
         householdId, accountId: account.id, categoryId: parts[0].categoryId, splits: parts, source: data.source, accessKey: data.accessKey,
-        store: data.store, cnpj: data.cnpj, issuedOn: date, total: t, paymentMethod: method, spentBy: kind === 'PF' ? spentBy || null : null,
+        store: data.store, description: docLabel ? `${docLabel} · ${data.store ?? 'pagamento'}` : undefined, cnpj: data.cnpj, issuedOn: date, total: t, paymentMethod: method, spentBy: kind === 'PF' ? spentBy || null : null,
         items: data.items, picks,
       });
       const ids = picks.map((p) => p.itemId).filter(Boolean) as string[];
@@ -234,10 +238,10 @@ function Confirm({ data, onReset }: { data: ReadReceiptResponse; onReset: () => 
 
   return (
     <>
-      <PageHeader title="Conferir nota" back="/lancar" />
+      <PageHeader title={docLabel ? "Conferir pagamento" : "Conferir nota"} back="/lancar" />
       <div className="card dark stack">
-        <span className="strong">{data.store ?? 'Loja não identificada'}</span>
-        <span className="small muted">{data.source === 'nfce' ? 'NFC-e (SEFAZ)' : 'Lido da foto'}{storeKind ? ` · ${({ posto: 'Posto', padaria: 'Padaria', acougue: 'Açougue', mercado: 'Mercado', farmacia: 'Farmácia', pet: 'Pet shop', restaurante: 'Restaurante' } as const)[storeKind]}` : ''} · {data.items.length} itens</span>
+        <span className="strong">{data.store ?? (docLabel ? 'Recebedor não identificado' : 'Loja não identificada')}</span>
+        <span className="small muted">{docLabel ? `Comprovante de ${docLabel}` : data.source === 'nfce' ? 'NFC-e (SEFAZ)' : 'Lido da foto'}{storeKind ? ` · ${({ posto: 'Posto', padaria: 'Padaria', acougue: 'Açougue', mercado: 'Mercado', farmacia: 'Farmácia', pet: 'Pet shop', restaurante: 'Restaurante' } as const)[storeKind]}` : ''}{docLabel ? '' : ` · ${data.items.length} itens`}</span>
       </div>
       <div className="card stack">
         <Segmented value={kind} onChange={(k) => { setKind(k); setSplitFor(null); }} options={[{ id: 'PF', label: 'Família (PF)' }, { id: 'PJ', label: 'Empresa (PJ)' }]} />

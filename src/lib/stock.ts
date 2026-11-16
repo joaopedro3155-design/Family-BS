@@ -11,6 +11,8 @@ export interface ReadReceiptResponse {
   suggestedCategory: string | null;
   items: ReceiptItem[];
   warning?: string;
+  /** comprovante de pagamento (Pix, boleto, transferência) em vez de cupom de compra */
+  docType?: 'cupom' | 'pix' | 'boleto' | 'transferencia';
   storeKind?: 'posto' | 'padaria' | 'acougue' | 'mercado' | 'farmacia' | 'pet' | 'restaurante' | null;
 }
 

@@ -80,6 +80,8 @@ function cleanName(line: string): string {
 
 /** Lê loja, data, total, pagamento e itens do texto do cupom. */
 export function parseReceiptText(raw: string): ReadReceiptResponse & { storeKind: StoreKind } {
+  const pay = parsePaymentProof(raw);
+  if (pay) return pay;
   const lines = raw.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
   const T = strip(raw);
   const storeKind = detectStore(raw);
@@ -182,4 +184,92 @@ export function splitByBucket(items: ReceiptItem[], total: number | null, storeK
   // fecha centavos de arredondamento
   if (total) { const d = Math.round((total - list.reduce((s, x) => s + x.amount, 0)) * 100) / 100; if (d && list[0]) list[0].amount = Math.round((list[0].amount + d) * 100) / 100; }
   return list;
+}
+
+/** Subcategoria provável pelo nome de quem recebeu (conta de luz, água, plano…). */
+const PAYEE_RULES: [RegExp, RegExp][] = [
+  [/\b(ENEL|CPFL|ELEKTRO|LIGHT\b|CEMIG|COPEL|CELESC|EDP|NEOENERGIA|ENERGISA|COELBA|EQUATORIAL|ENERGIA|ELETROPAULO)/, /^luz$/i],
+  [/\b(SABESP|DAE\b|SANASA|SAAE|COPASA|SANEPAR|CEDAE|EMBASA|AGUAS|SANEAMENTO)/, /^[aá]gua$/i],
+  [/\b(COMGAS|NATURGY|ULTRAGAZ|LIQUIGAS|SUPERGASBRAS|COPAGAZ|NACIONAL\s*GAS|\bGAS\b)/, /^g[aá]s$/i],
+  [/\b(VIVO|TELEFONICA|CLARO|\bTIM\b|\bOI\b|NET\s*SERV|SKY|ALGAR|INTERNET|FIBRA|DESKTOP)/, /celular|internet/i],
+  [/\b(ALICE|UNIMED|AMIL|SULAMERICA\s*SAUDE|BRADESCO\s*SAUDE|HAPVIDA|NOTREDAME|PREVENT|PORTO\s*SAUDE|PLANO\s*DE\s*SAUDE)/, /^plano de sa[uú]de$/i],
+  [/\b(PRUDENTIAL|SEGURO\s*DE\s*VIDA|MAPFRE\s*VIDA|ICATU)/, /seguro de vida/i],
+  [/\b(DETRAN|IPVA|LICENCIAMENTO|SEFAZ.*VEIC)/, /licenciamento|ipva/i],
+  [/\b(PORTO\s*SEGURO|AZUL\s*SEGUROS|YOUSE|TOKIO|ALLIANZ|HDI|LIBERTY|SUHAI)/, /seguro carro/i],
+  [/\b(IMOBILIARIA|ALUGUEL|LOCACAO|QUINTO\s*ANDAR|QUINTOANDAR|CONDOMINIO)/, /^aluguel$/i],
+  [/\b(TOYOTA|BANCO\s*TOYOTA|FINANCIAMENTO|AYMORE|BV\s*FINANC|SANTANDER\s*FINANC)/, /presta[cç][aã]o carro/i],
+  [/\b(CONSORCIO|EMBRACON|RODOBENS|PORTO\s*CONSORCIO)/, /cons[oó]rcio/i],
+  [/\b(SEM\s*PARAR|CONECTCAR|VELOE|ESTACIONAMENTO|ESTAPAR|ZONA\s*AZUL)/, /estacionamento|sem parar/i],
+  [/\b(IFOOD|RAPPI|99\s*FOOD|UBER\s*EATS)/, /ifood/i],
+  [/\b(UBER|99\s*(POP|TAXI|TECNOLOGIA)|CABIFY|TAXI)/, /t[aá]xi|uber/i],
+  [/\b(NETFLIX|SPOTIFY|DISNEY|HBO|MAX\b|GLOBOPLAY|PRIME\s*VIDEO|DEEZER|YOUTUBE)/, /streaming/i],
+  [/\b(SMART\s*FIT|BLUEFIT|BODYTECH|ACADEMIA|SELFIT|TOTALPASS|GYMPASS|WELLHUB)/, /academia/i],
+  [/\b(IGREJA|ADVENTISTA|DIZIMO|OFERTA|ASSOC.*IGREJA)/, /d[ií]zimo/i],
+  [/\b(PET\s*SHOP|COBASI|PETZ|VETERIN)/, /banho|ra[cç][aã]o/i],
+  [/\b(DROGARIA|FARMACIA|DROGA\s*RAIA|DROGASIL|PAGUE\s*MENOS|PACHECO|LABORAT|FLEURY|DASA|LAVOISIER|DELBONI)/, /exames|farm[aá]cia/i],
+  [/\b(POSTO|COMBUST|SHELL|IPIRANGA|PETROBRAS)/, /combust/i],
+  [/\b(SUPERMERCADO|MERCADO|ATACAD|ASSAI|CARREFOUR|PAO\s*DE\s*ACUCAR|COVABRA|GOOD\s*BOM|SAO\s*VICENTE)/, /supermercado/i],
+  [/\b(PADARIA|PANIFIC)/, /padaria/i],
+];
+
+/** Padrão do nome da subcategoria sugerida para quem recebeu o pagamento. */
+export function payeeCategoryPattern(payee: string): RegExp | null {
+  const t = strip(payee);
+  for (const [re, cat] of PAYEE_RULES) if (re.test(t)) return cat;
+  return null;
+}
+
+const LABEL_LINE = /^(PARA|DE|FAVORECIDO|BENEFICIARIO|BENEFICIARIO\s*FINAL|RECEBEDOR|NOME\s*DO\s*RECEBEDOR|DESTINATARIO|DADOS\s*DO\s*RECEBEDOR|QUEM\s*RECEBEU|PAGO\s*PARA|CEDENTE|EMPRESA|RAZAO\s*SOCIAL|NOME)\s*:?\s*(.*)$/;
+
+/** Comprovante de Pix, boleto ou transferência (sem itens). */
+export function parsePaymentProof(raw: string): (ReadReceiptResponse & { storeKind: StoreKind }) | null {
+  const T = strip(raw);
+  const isPix = /\bPIX\b/.test(T) && /(COMPROVANTE|ENVIADO|REALIZADO|TRANSFERENCIA|PAGAMENTO|EFETUAD|CONCLUID)/.test(T);
+  const isBoleto = /(BOLETO|LINHA\s*DIGITAVEL|CODIGO\s*DE\s*BARRAS|PAGAMENTO\s*DE\s*(CONTA|TITULO|CONVENIO|CONCESSIONARIA)|CONVENIO|DATA\s*DE\s*VENCIMENTO|VENCIMENTO)/.test(T) && /(COMPROVANTE|PAGAMENTO|PAGO|AUTENTICA)/.test(T);
+  const isTed = /(COMPROVANTE\s*DE\s*TRANSFERENCIA|\bTED\b|\bDOC\b\s*ELETR)/.test(T);
+  if (!isPix && !isBoleto && !isTed) return null;
+  // cupom fiscal com Pix como pagamento continua sendo cupom
+  if (/(CUPOM\s*FISCAL|NFC-?E|DANFE|EXTRATO\s*N|SAT\b)/.test(T) && !/COMPROVANTE\s*DE\s*PIX/.test(T)) return null;
+
+  const lines = raw.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  // valor: "R$ 183,96" perto de "valor"/topo; senão o primeiro R$
+  let total: number | null = null;
+  for (let i = 0; i < lines.length && total === null; i++) {
+    const u = strip(lines[i]);
+    if (/(VALOR|TOTAL|PAGO|R\$)/.test(u) && !/(TARIFA|JUROS|MULTA|DESCONTO|SALDO|LIMITE)/.test(u)) {
+      const m = [...lines[i].matchAll(MONEY), ...(/(VALOR|TOTAL)/.test(u) && lines[i + 1] ? [...lines[i + 1].matchAll(MONEY)] : [])][0];
+      if (m) total = toNum(m[0]);
+    }
+  }
+  if (total === null) { const m = raw.match(MONEY); if (m) total = toNum(m[0]); }
+
+  // data: prioriza "realizado em", "pago em", "data do pagamento"
+  let issuedOn: string | null = null;
+  const dated = lines.find((l) => /(REALIZAD|PAGO\s*EM|PAGAMENTO\s*EM|DATA\s*(DO|DA)?\s*(PAGAMENTO|TRANSF|OPERA)|EFETUAD|EM\s*\d{2}\/)/.test(strip(l)) && /\d{2}[/.-]\d{2}[/.-]\d{2,4}/.test(l)) ?? raw;
+  const dm = dated.match(/(\d{2})[/.-](\d{2})[/.-](\d{2,4})/) ?? raw.match(/(\d{2})[/.-](\d{2})[/.-](\d{2,4})/);
+  if (dm) { let y = +dm[3]; if (y < 100) y += 2000; issuedOn = `${y}-${dm[2]}-${dm[1]}`; }
+
+  // quem recebeu: linha depois de "Para"/"Favorecido"/"Beneficiário"
+  let payee: string | null = null;
+  for (let i = 0; i < lines.length && !payee; i++) {
+    const m = strip(lines[i]).match(LABEL_LINE);
+    if (!m || m[1] === 'DE') continue;
+    const rest = lines[i].slice(lines[i].length - m[2].length).trim();
+    const cand = rest.length >= 3 ? rest : lines[i + 1] ?? '';
+    const cu = strip(cand);
+    if (cand && !/(CPF|CNPJ|INSTITUI|AGENCIA|CONTA|CHAVE|BANCO\s*:)/.test(cu) && (cu.match(/[A-Z]/g)?.length ?? 0) >= 3) payee = cand.replace(/[|_]/g, '').trim();
+  }
+  // CNPJ de quem recebeu = o que aparece depois de "Para"
+  const paraIdx = lines.findIndex((l) => /^(PARA|FAVORECIDO|BENEFICIARIO|RECEBEDOR|DESTINATARIO)/.test(strip(l)));
+  const cnpjSrc = paraIdx >= 0 ? lines.slice(paraIdx).join(' ') : raw;
+  const cnpj = cnpjSrc.match(/\b\d{2}\.?\d{3}\.?\d{3}\s*\/?\s*\d{4}\s*-?\s*\d{2}\b/)?.[0].replace(/\D/g, '') ?? null;
+
+  const docType = isPix ? 'pix' : isBoleto ? 'boleto' : 'transferencia';
+  const pattern = payeeCategoryPattern(`${payee ?? ''} ${isBoleto ? raw : ''}`);
+  return {
+    source: 'foto', docType, accessKey: null, store: payee, cnpj, issuedOn, total,
+    paymentMethod: docType === 'transferencia' ? 'transferencia' : docType,
+    suggestedCategory: pattern ? pattern.source : null, items: [], storeKind: null,
+  };
 }

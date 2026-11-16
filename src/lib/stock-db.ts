@@ -48,6 +48,8 @@ export interface SaveReceiptInput {
   source: 'nfce' | 'foto' | 'telegram';
   accessKey: string | null;
   store: string | null;
+  /** descrição do lançamento (padrão: "Compra · loja") */
+  description?: string;
   cnpj: string | null;
   issuedOn: string;
   total: number;
@@ -73,7 +75,7 @@ export async function saveReceipt(sb: SupabaseClient, r: SaveReceiptInput): Prom
   const parts = r.splits?.length ? r.splits : [{ categoryId: r.categoryId, amount: r.total }];
   const { data: txs, error: e2 } = await sb.from('transactions').insert(parts.map((p) => ({
     household_id: r.householdId, account_id: r.accountId, category_id: p.categoryId, tipo: 'despesa', amount: p.amount,
-    occurred_on: r.issuedOn, description: r.store ? `Compra · ${r.store}` : 'Compra', payment_method: r.paymentMethod,
+    occurred_on: r.issuedOn, description: r.description ?? (r.store ? `Compra · ${r.store}` : 'Compra'), payment_method: r.paymentMethod,
     spent_by: r.spentBy, source: 'nota_fiscal', installments: 1, installment_no: 1,
     ...(r.createdBy ? { created_by: r.createdBy } : {}),
   }))).select('id');
