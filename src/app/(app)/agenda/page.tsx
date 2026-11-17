@@ -9,6 +9,7 @@ import { EVENT_CATEGORIES, type EventItem } from '@/lib/types';
 import { fetchOccurrences, isVisibleTo, setDone, type Occurrence } from '@/lib/events-db';
 import { RECURRENCES, nextOccurrence, recurrenceLabel, type Recurrence } from '@/lib/recurrence';
 import { parseVoiceEvent, type VoiceEvent } from '@/lib/voice-event';
+import { UNDATED_DAY, UNDATED_LOCAL, isUndated } from '@/lib/undated';
 
 const WD = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 const REMINDERS = [
@@ -40,6 +41,7 @@ export default function Agenda() {
   const [view, setView] = useState<'agenda' | 'recorrentes'>('agenda');
   const [upcoming, setUpcoming] = useState<Occurrence[]>([]);
   const [series, setSeries] = useState<EventItem[]>([]);
+  const [pending, setPending] = useState<EventItem[]>([]);
   const [selected, setSelected] = useState(todayISO());
   const [weekStart, setWeekStart] = useState(() => {
     const t = todayISO();
@@ -82,6 +84,30 @@ export default function Agenda() {
       .then(async ({ data }) => { const uid = (await supabase().auth.getSession()).data.session?.user.id; if (alive) setSeries(((data as EventItem[]) ?? []).filter((e) => isVisibleTo(e, uid))); });
     return () => { alive = false; };
   }, [householdId, view, rev]);
+
+  // pendências sem data definida (lembradas todo dia ao meio-dia, menos sábado)
+  useEffect(() => {
+    if (!householdId) return;
+    let alive = true;
+    (async () => {
+      const sb = supabase();
+      const [{ data }, { data: sess }] = await Promise.all([
+        sb.from('events').select('*').eq('household_id', householdId).gte('starts_at', '2099-01-01').order('created_at'),
+        sb.auth.getSession(),
+      ]);
+      const list = ((data as EventItem[]) ?? []).filter((e) => isVisibleTo(e, sess.session?.user.id));
+      const ids = list.map((e) => e.id);
+      const { data: done } = ids.length ? await sb.from('event_done').select('event_id').in('event_id', ids).eq('occurs_on', UNDATED_DAY) : { data: [] };
+      const doneSet = new Set((done ?? []).map((d) => d.event_id));
+      if (alive) setPending(list.filter((e) => !doneSet.has(e.id)));
+    })();
+    return () => { alive = false; };
+  }, [householdId, rev]);
+
+  async function concludePending(e: EventItem) {
+    await setDone(supabase(), e.id, UNDATED_DAY, true);
+    setPending((l) => l.filter((x) => x.id !== e.id));
+  }
 
   async function toggleDone(e: Occurrence) {
     await setDone(supabase(), e.id, e.occ, !e.done);
@@ -161,6 +187,21 @@ export default function Agenda() {
           })}
         </div>
       ) : (<>
+      {pending.filter(matchWho).length > 0 && (
+        <div className="card stack pending-card" style={{ gap: 8 }}>
+          <div className="row between"><span className="strong">📌 Sem data definida ({pending.filter(matchWho).length})</span><span className="small muted">aviso todo dia 12h, exceto sáb.</span></div>
+          {pending.filter(matchWho).map((e) => (
+            <div key={e.id} className="row gap8" style={{ alignItems: 'center' }}>
+              <button className="done-check" aria-label="Concluir" title="Concluir" onClick={() => concludePending(e)}>✓</button>
+              <button className="grow pending-item" onClick={() => openEvent(e)}>
+                <span className="strong" style={{ color: color(e) }}>{e.title}</span>
+                <span className="small muted">{ownerLabel(e)} · {e.is_task ? 'Tarefa' : EVENT_CATEGORIES.find((c) => c.id === e.category)?.label} · toque para definir a data</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Segmented value={mode} onChange={setMode} options={[{ id: 'semana', label: 'Semana' }, { id: 'lista', label: 'Lista (próximas datas)' }]} />
 
       {showList ? (
@@ -221,6 +262,7 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (patch: Partial<EventItem>) => setV((o) => ({ ...o, ...patch }));
+  const undated = isUndated(v.starts_at);
 
   async function save() {
     if (!v.title || !v.starts_at) { setErr('Preencha título e horário.'); return; }
@@ -270,9 +312,9 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
           const curDate = (v.starts_at ?? '').slice(0, 10) || todayISO();
           const curTime = (v.starts_at ?? '').slice(11, 16) || '09:00';
           const date = r.date ?? curDate;
-          const patch: Partial<EventItem> = { starts_at: `${date}T${r.start ?? curTime}` };
+          const patch: Partial<EventItem> = r.undated ? { starts_at: UNDATED_LOCAL, ends_at: null, recurrence: 'none', reminders: [] } : { starts_at: `${isUndated(v.starts_at) && !r.date ? todayISO() : date}T${r.start ?? (isUndated(v.starts_at) ? '09:00' : curTime)}` };
           if (r.title) patch.title = r.title;
-          if (r.end) patch.ends_at = `${date}T${r.end}`;
+          if (r.end && !r.undated) patch.ends_at = `${date}T${r.end}`;
           if (r.location) patch.location = r.location;
           if (r.notes) patch.notes = v.notes ? `${v.notes}\n${r.notes}` : r.notes;
           if (r.category) patch.category = r.category;
@@ -288,10 +330,13 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
           set(patch);
         }} />
         <label className="field"><span>Título</span><input value={v.title ?? ''} onChange={(e) => set({ title: e.target.value })} placeholder={v.company ? 'Entrega do projeto estrutural – Cliente X' : 'Reunião com cliente'} /></label>
+        <label className="check undated-check"><input type="checkbox" checked={undated} onChange={(e) => set(e.target.checked ? { starts_at: UNDATED_LOCAL, ends_at: null, recurrence: 'none', reminders: [] } : { starts_at: `${todayISO()}T09:00`, reminders: [1440, 60] })} />📌 Sem data definida — me lembrar todo dia ao meio-dia (menos sábado)</label>
+        {!undated && (
         <div className="grid2">
           <label className="field"><span>Início</span><input type="datetime-local" value={v.starts_at ?? ''} onChange={(e) => set({ starts_at: e.target.value })} /></label>
           <label className="field"><span>Fim (opcional)</span><input type="datetime-local" value={v.ends_at ?? ''} onChange={(e) => set({ ends_at: e.target.value })} /></label>
         </div>
+        )}
         <div className="grid2">
           <label className="field"><span>De quem</span>
             <select value={v.company ? CBS : v.owner_user ?? ''} onChange={(e) => {
@@ -311,6 +356,7 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
           </label>
         </div>
         <label className="check"><input type="checkbox" checked={v.is_task ?? false} onChange={(e) => set({ is_task: e.target.checked })} />É uma tarefa (marcar como feita)</label>
+        {!undated && (<>
         <div className="grid2">
           <label className="field"><span>Repetir</span>
             <select value={v.recurrence ?? 'none'} onChange={(e) => set({ recurrence: e.target.value as Recurrence })}>
@@ -329,10 +375,13 @@ function EventSheet({ value, onClose, onSaved }: { value: Partial<EventItem>; on
             <p className="small muted">{v.starts_at ? recurrenceLabel({ starts_at: new Date(v.starts_at).toISOString(), recurrence: v.recurrence, recurrence_interval: v.recurrence_interval, recurrence_until: v.recurrence_until }) : ''}{v.id ? ' · alterar aqui muda todas as repetições' : ''}</p>
           </>
         )}
+        </>)}
         <label className="field"><span>Local ou link</span><input value={v.location ?? ''} onChange={(e) => set({ location: e.target.value })} placeholder="Endereço (abre no Waze/Maps) ou link da reunião" /></label>
+        {!undated && (
         <div className="field"><span>Lembretes</span>
           <div className="row wrap gap12">{REMINDERS.map((r) => <label key={r.m} className="check"><input type="checkbox" checked={(v.reminders ?? []).includes(r.m)} onChange={() => toggleRem(r.m)} />{r.label}</label>)}</div>
         </div>
+        )}
         <label className="field"><span>Observações</span><textarea value={v.notes ?? ''} onChange={(e) => set({ notes: e.target.value })} /></label>
         {err && <p className="error">{err}</p>}
         <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Salvando…' : 'Salvar'}</button>

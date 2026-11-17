@@ -210,3 +210,8 @@ body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 
 .event .body.done { opacity: .75; }
 
 .voice-btn { border: 1.5px dashed var(--teal); color: var(--teal-dark); background: var(--teal-soft); font-weight: 700; }
+
+/* ---------- pendências sem data ---------- */
+.pending-card { border: 1.5px dashed var(--teal); background: #FFF8F2; }
+.pending-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: none; padding: 4px 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.undated-check { background: var(--teal-soft); padding: 10px 12px; border-radius: 12px; font-weight: 600; }

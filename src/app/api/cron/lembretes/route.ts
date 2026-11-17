@@ -6,6 +6,7 @@ import { monthKey, monthRange, timeLabel, todayISO } from '@/lib/format';
 import type { EventItem, RecurringBill } from '@/lib/types';
 import { needsBuying, type StockItem } from '@/lib/stock';
 import { expandEvents } from '@/lib/recurrence';
+import { UNDATED_DAY, weekdaySP } from '@/lib/undated';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const EV_COLS = 'id,household_id,title,starts_at,ends_at,reminders,owner_user,location,recurrence,recurrence_interval,recurrence_until';
@@ -111,6 +112,35 @@ export async function POST(req: Request) {
       if (!parts.length) continue;
       await pushToHousehold(sb, h.id, { title: 'Bom dia! Seu dia no Family BS', body: parts.join(' · '), url: '/', tag: `digest-${today}` });
       report.resumos++;
+    }
+  }
+
+  // 5) Pendências sem data: todo dia ao meio-dia, menos sábado
+  if (hourSP >= 12 && hourSP < 20 && weekdaySP(now) !== 6) {
+    const { data: und } = await sb.from('events').select('id,household_id,title,owner_user,created_by').gte('starts_at', '2099-01-01');
+    const ids = (und ?? []).map((e) => e.id);
+    const { data: doneRows } = ids.length ? await sb.from('event_done').select('event_id').in('event_id', ids).eq('occurs_on', UNDATED_DAY) : { data: [] };
+    const done = new Set((doneRows ?? []).map((r) => r.event_id));
+    const occursAt = new Date(`${today}T12:00:00-03:00`).toISOString();
+    // agrupa por família e por quem recebe ("Todos" → família inteira; pessoal/empresa → só o dono)
+    const groups = new Map<string, { household: string; to?: string[]; titles: string[] }>();
+    for (const e of und ?? []) {
+      if (done.has(e.id)) continue;
+      const { error } = await sb.from('event_notifications').insert({ event_id: e.id, minutes_before: -720, occurs_at: occursAt });
+      if (error) continue; // já avisado hoje
+      const who = e.owner_user ?? null;
+      const key = `${e.household_id}|${who ?? 'all'}`;
+      const g = groups.get(key) ?? { household: e.household_id as string, to: who ? [who as string] : undefined, titles: [] as string[] };
+      g.titles.push(e.title);
+      groups.set(key, g);
+    }
+    for (const [key, g] of groups) {
+      await pushToHousehold(sb, g.household, {
+        title: g.titles.length === 1 ? 'Pendência sem data' : `${g.titles.length} pendências sem data`,
+        body: `${g.titles.slice(0, 5).join(' · ')}${g.titles.length > 5 ? ' …' : ''} — defina a data ou conclua.`,
+        url: '/agenda', tag: `semdata-${today}-${key}`,
+      }, g.to);
+      report.eventos++;
     }
   }
 

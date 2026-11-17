@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   if (!h) return new Response('não encontrado', { status: 404 });
   const from = new Date(Date.now() - 60 * 86400000).toISOString();
   const [{ data: events }, { data: members }] = await Promise.all([
-    sb.from('events').select('*').eq('household_id', h.id).or(`starts_at.gte.${from},recurrence.neq.none`).order('starts_at').limit(2000),
+    sb.from('events').select('*').eq('household_id', h.id).or(`starts_at.gte.${from},recurrence.neq.none`).lt('starts_at', '2099-01-01').order('starts_at').limit(2000),
     sb.from('members').select('user_id,display_name').eq('household_id', h.id),
   ]);
   const name = (id: string | null) => (id ? members?.find((m) => m.user_id === id)?.display_name.split(' ')[0] ?? '' : '');

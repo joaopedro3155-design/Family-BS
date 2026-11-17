@@ -243,6 +243,8 @@ t('agenda por voz: data, horário, endereço, link e observação', () => {
   assert.deepEqual([f.title, f.recurrence, f.start, f.who, f.date], ['Terapia', 'weekly', '09:00', 'kamila', '2026-11-19']);
   const g = parseVoiceEvent('Médico às 3 da tarde', now);
   assert.deepEqual([g.title, g.date, g.start, g.end], ['Médico', null, '15:00', null]);
+  const h = parseVoiceEvent('Definir data do projeto da casa da Vila Arens, sem data definida', now);
+  assert.deepEqual([h.title, h.undated, h.date, h.start], ['Definir data do projeto da casa da Vila Arens', true, null, null]);
 });
 
 console.log(`\n${n} grupos de teste passaram.`);

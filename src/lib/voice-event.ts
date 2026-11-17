@@ -15,6 +15,7 @@ export interface VoiceEvent {
   category: 'cliente' | 'escritorio' | 'casa' | 'pessoal' | 'familia' | 'entrega' | null;
   recurrence: Recurrence | null;
   isTask: boolean;
+  undated: boolean;
 }
 
 /** minúsculas e sem acento, mantendo o MESMO tamanho do texto (para casar posições). */
@@ -194,6 +195,7 @@ export function parseVoiceEvent(text: string, now = new Date()): VoiceEvent {
   else if (/\b(casa|mudanca|faxina|conserto|manutencao|diarista)\b/.test(mainL)) category = 'casa';
   else if (/\b(medico|consulta|exame|dentista|terapia|academia|cabeleireiro|manicure|pediatra|vacina)\b/.test(mainL)) category = 'pessoal';
   const isTask = /^\s*(tarefa|lembrar de|lembrete|preciso|tenho que)\b/.test(w.L);
+  const undated = !!w.take(/\b(sem data( definida)?|sem prazo|data a definir|a definir|quando der|em aberto)\b/);
 
   // 7) título = o que sobrou
   let title = w.rest()
@@ -210,6 +212,6 @@ export function parseVoiceEvent(text: string, now = new Date()): VoiceEvent {
   return {
     title, date, start, end, location: finalLocation,
     notes: [extra, notes].filter(Boolean).join('. ') || null,
-    who, category, recurrence, isTask,
+    who, category, recurrence, isTask, undated: undated && !date && !start,
   };
 }
