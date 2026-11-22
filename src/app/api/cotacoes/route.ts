@@ -15,7 +15,25 @@ async function fetchOne(symbol: string): Promise<Quote | null> {
       if (q) return q;
     } catch { /* tenta o outro servidor */ }
   }
-  return null;
+  return stooq(symbol);
+}
+
+/** Reserva: histórico diário do Stooq (ações americanas; fechamento do dia). */
+async function stooq(symbol: string): Promise<Quote | null> {
+  if (symbol.includes('.') || symbol.includes('=') || symbol.startsWith('^')) return null;
+  const d = (dt: Date) => dt.toISOString().slice(0, 10).replace(/-/g, '');
+  const to = new Date(), from = new Date(Date.now() - 370 * 86400000);
+  try {
+    const r = await fetch(`https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=d&d1=${d(from)}&d2=${d(to)}`, { headers: { 'user-agent': UA }, cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const rows = (await r.text()).trim().split('\n').slice(1).map((l) => l.split(',')).filter((c) => c.length >= 5 && Number.isFinite(Number(c[4])));
+    if (rows.length < 2) return null;
+    const closes = rows.map((c) => Number(c[4]));
+    const times = rows.map((c) => Math.floor(Date.parse(`${c[0]}T21:00:00Z`) / 1000));
+    return { symbol, name: null, currency: 'USD', price: closes[closes.length - 1], prevClose: closes[closes.length - 2], time: times[times.length - 1], closes, times };
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(req: Request) {
