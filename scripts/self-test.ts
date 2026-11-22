@@ -16,6 +16,7 @@ import { parseSgs, realRate } from '../src/lib/bcb';
 import { parseReceiptText, splitByBucket, classifyItem } from '../src/lib/receipt-text';
 import { occurrences, recurrenceLabel, nextOccurrence, rrule } from '../src/lib/recurrence';
 import { parseVoiceEvent } from '../src/lib/voice-event';
+import { analyze, rsi, parseYahooChart, holding, toSymbol } from '../src/lib/market';
 
 let n = 0;
 const t = (name: string, fn: () => void) => { fn(); n++; console.log('ok -', name); };
@@ -245,6 +246,28 @@ t('agenda por voz: data, horário, endereço, link e observação', () => {
   assert.deepEqual([g.title, g.date, g.start, g.end], ['Médico', null, '15:00', null]);
   const h = parseVoiceEvent('Definir data do projeto da casa da Vila Arens, sem data definida', now);
   assert.deepEqual([h.title, h.undated, h.date, h.start], ['Definir data do projeto da casa da Vila Arens', true, null, null]);
+});
+
+t('carteiras: cotação Yahoo, termômetro técnico e posição', () => {
+  const ts = Array.from({ length: 260 }, (_, i) => 1700000000 + i * 86400);
+  const up = ts.map((_, i) => 100 + i * 0.5); // alta constante → esticado
+  const q = parseYahooChart({ chart: { result: [{ meta: { symbol: 'NVDA', currency: 'USD', regularMarketPrice: up[up.length - 1], longName: 'NVIDIA Corporation', regularMarketTime: ts[259] }, timestamp: ts, indicators: { quote: [{ close: up }] } }] } })!;
+  assert.equal(q.symbol, 'NVDA'); assert.equal(q.name, 'NVIDIA Corporation'); assert.equal(q.closes.length, 260);
+  const a = analyze(q);
+  assert.equal(a.level, 'esticado'); assert.equal(a.trend, 'alta'); assert.ok((a.rsi ?? 0) > 70);
+  // queda forte → desconto
+  const down = ts.map((_, i) => 200 - i * 0.5);
+  assert.equal(analyze({ price: down[259], prevClose: down[258], closes: down, times: ts }).level, 'desconto');
+  // alta longa com recuo recente → bom ponto
+  const dip = ts.map((_, i) => (i < 250 ? 100 + i * 0.4 : 199.6 - (i - 249) * 0.7));
+  assert.equal(analyze({ price: dip[259], prevClose: dip[258], closes: dip, times: ts }).level, 'bom');
+  // ação recém-listada → pouco histórico
+  assert.equal(analyze({ price: 102, prevClose: 95, closes: [83, 95, 102], times: ts.slice(0, 3) }).level, 'novo');
+  assert.equal(Math.round(rsi([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])!), 100);
+  const h = holding({ symbol: 'PETR4.SA', label: 'PETR4', name: 'Petrobras', sector: '', market: 'BR', buys: [{ id: '1', date: '2026-11-01', qty: 100, price: 30, owner: 'João Pedro', broker: 'XP' }, { id: '2', date: '2026-11-10', qty: 100, price: 34, owner: 'João Pedro', broker: 'XP' }] }, 36);
+  assert.deepEqual([h.qty, h.avg, h.value, h.pl], [200, 32, 7200, 800]);
+  assert.deepEqual(toSymbol(' petr4 ', 'BR'), { symbol: 'PETR4.SA', label: 'PETR4' });
+  assert.deepEqual(toSymbol('nvda', 'INT'), { symbol: 'NVDA', label: 'NVDA' });
 });
 
 console.log(`\n${n} grupos de teste passaram.`);

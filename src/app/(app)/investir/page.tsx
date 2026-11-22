@@ -9,6 +9,8 @@ import { dayLabel, parseMoney } from '@/lib/format';
 import { ASSET_CLASSES } from '@/lib/types';
 import { realRate, type Indicator } from '@/lib/bcb';
 import type { Headline } from '@/lib/rss';
+import type { Market } from '@/lib/market';
+import { StockPanel, useWatchlist } from './carteiras';
 
 interface Position { id: string; owner: string; broker: string; name: string; asset_class: string; amount: number; invested: number | null; rate: string | null; applied_at: string | null; liquidity: string | null; maturity: string | null; notes: string | null }
 
@@ -32,6 +34,8 @@ export default function Investir() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [owner, setOwner] = useState('Todos');
+  const [market, setMarket] = useState<Market>('BR');
+  const watch = useWatchlist(householdId);
   const [rev, setRev] = useState(0);
   const reload = () => setRev((r) => r + 1);
 
@@ -41,7 +45,7 @@ export default function Investir() {
     const sb = supabase();
     Promise.all([
       sb.from('portfolio_positions').select('*').eq('household_id', householdId).order('amount', { ascending: false }),
-      sb.from('investment_briefs').select('week_start,content').eq('household_id', householdId).order('week_start', { ascending: false }).limit(1),
+      sb.from('investment_briefs').select('week_start,content').eq('household_id', householdId).gt('week_start', '1900-01-01').order('week_start', { ascending: false }).limit(1),
       sb.from('investor_profile').select('*').eq('household_id', householdId).maybeSingle(),
     ]).then(([p, b, pr]) => {
       if (!alive) return;
@@ -73,10 +77,16 @@ export default function Investir() {
 
   return (
     <>
-      <PageHeader title="Investimentos" subtitle="Carteira de cada titular">
+      <PageHeader title="Investimentos" subtitle="Carteira nacional e internacional">
         <EyeButton />
-        <button className="icon-btn" aria-label="Adicionar investimento" onClick={newPosition}><Icon name="plus" /></button>
+        {market === 'BR' && <button className="icon-btn" aria-label="Adicionar investimento" onClick={newPosition}><Icon name="plus" /></button>}
       </PageHeader>
+
+      <Segmented value={market} onChange={setMarket} options={[{ id: 'BR', label: '🇧🇷 Nacional' }, { id: 'INT', label: '🌎 Internacional' }]} />
+      <div style={{ height: 12 }} />
+
+      {market === 'INT' && (watch.items ? <StockPanel market="INT" items={watch.items} save={watch.save} owners={owners} /> : <span className="small muted">Carregando…</span>)}
+      {market === 'BR' && (<>
 
       {usedOwners.length > 0 && (
         <div className="chips" style={{ marginBottom: 12 }}>
@@ -131,6 +141,7 @@ export default function Investir() {
         </div>
 
         <div className="stack">
+          {watch.items && <StockPanel market="BR" items={watch.items} save={watch.save} owners={owners} />}
           <div className="row between">
             <h2>{status && !status.claude ? 'Mercado hoje' : 'Resumo da semana'}</h2>
             {status?.claude && <button className="btn small" disabled={busy} onClick={generate}>{busy ? 'Pesquisando…' : brief ? 'Refazer' : 'Gerar agora'}</button>}
@@ -173,6 +184,7 @@ export default function Investir() {
       </div>
 
       {editing && <PositionSheet value={editing} owners={owners} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      </>)}
     </>
   );
 }

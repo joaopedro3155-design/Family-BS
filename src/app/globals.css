@@ -215,3 +215,18 @@ body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 
 .pending-card { border: 1.5px dashed var(--teal); background: #FFF8F2; }
 .pending-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: none; padding: 4px 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .undated-check { background: var(--teal-soft); padding: 10px 12px; border-radius: 12px; font-weight: 600; }
+
+/* ---------- carteiras de ações ---------- */
+.tiny { font-size: 11.5px; }
+.up { color: #1F7A4D; } .down { color: #B42318; }
+.up-dark { color: #86E0AE; } .down-dark { color: #FCA5A5; }
+.stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.stock-card { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.stock-head { display: flex; gap: 8px; background: none; border: none; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; width: 100%; }
+.signal { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+.range52 { position: relative; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #1F7A4D, #E8B007 50%, #B42318); }
+.range52 span { position: absolute; top: -4px; width: 4px; height: 14px; margin-left: -2px; border-radius: 2px; background: var(--ink); }
+.ret-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ret { display: flex; flex-direction: column; background: var(--bg); border-radius: 10px; padding: 6px 8px; }
+.reasons { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.news-mini { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border-bottom: 1px solid var(--line2); color: inherit; text-decoration: none; }
